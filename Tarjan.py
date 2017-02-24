@@ -16,8 +16,6 @@ class Query:
         self.lca=None
 
 
-
-
 def makeSet(p):
     p.parent=p
 
@@ -66,7 +64,7 @@ def displayTree(root,level):
             for chid in root.childList:
                 displayTree(chid,level+1)
 
-
+'测试这个算法'
 if __name__=="__main__":
     nodeList=[]
     for i in range(0,13):
@@ -92,17 +90,16 @@ if __name__=="__main__":
     queryList.append(Query(nodeList[2],nodeList[8]))
     queryList.append(Query(nodeList[6],nodeList[12]))
 
-    checked=[]
+    checked=[] #需要一个数组存储访问过的节点
     for i in range(0,13):
         checked.append(False)
-    ufList=[]
+    ufList=[] #这个数据结构存储UNode的数据结构
     for i in range(0,13):
         unode=UNode(nodeList[i].data)
         ufList.append(unode)
 
 
     #lca查询过程
-
     LCA(nodeList[0],queryList,checked,ufList,)
 
     #打印结果
