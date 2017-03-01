@@ -136,7 +136,6 @@ class ShellStructIndex:
         self.attachKw(ShellStructIndex.root)
 
 
-
     def attachKw(self,root):
         'BFS遍历树的所有节点并生成关键词倒排'
         kwMap=defaultdict(list)
@@ -150,6 +149,7 @@ class ShellStructIndex:
         '步骤2：迭代生成孩子节点的倒排属性'
         for chidTNode in root.childList:
             self.attachKw(chidTNode)
+
 
     def displayTree(self,root,level):
         '打印树'
