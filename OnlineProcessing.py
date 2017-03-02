@@ -9,6 +9,7 @@ import networkx as nx
 import copy
 from ShellStructIndex import ShellStructIndex as ShellIndex
 from collections import defaultdict
+import matplotlib.pyplot as plt
 
 def dataReader(graphFile,nodeFile):
     '根据图文件（邻接链表格式）和节点文件（节点-别名-属性）读取图'
@@ -16,9 +17,10 @@ def dataReader(graphFile,nodeFile):
     #读取节点的属性文件
     f=open(nodeFile)
     for line in f.readlines():
-        words = line.split()
+        words = line.split('\t') ###name和属性是ab分割，但是属性是空格分割
+        attrs=words[2].split(' ')
         G.node[int(words[0])]["name"]=words[1] #读取节点的name
-        G.node[int(words[0])]["attr"]=words[2:] #读取节点的属性
+        G.node[int(words[0])]["attr"]=attrs #读取节点的属性
     return G
 
 def retrieveCSM(queryVertexes,index):
@@ -126,10 +128,13 @@ def greedyDec(H,maxCoreness,queryVertexes,queryAttributes):
         '5.2:确定删除后最小度仍能保持最小度'
         deletedVtmp=[] #存删除的节点
         deletedVtmp.append(u)
+        '这里可能会出现为了保持k-core需要删除查询点的情况，那就直接终止？'
         kcoreMaintain(Hi,maxCoreness,deletedVtmp,queryVertexes)
-        if not Hi: ##可能删完就变成空的了
+        interSecttmp=[val for val in deletedVtmp if val in queryVertexes] ##看需要删除的节点和查询节点是否由交集
+        if len(interSecttmp)>0:
             break
-        if not nx.is_connected(Hi): ##删除完了不连通或者删除到查询节点就删除
+        ##可能删完就变成空的了;或者##删除完了不连通或者删除到查询节点就删除
+        if not Hi or  not nx.is_connected(Hi): ##
             break
         deletCount=deletCount+len(deletedVtmp)-1
         for v in deletedVtmp:
@@ -143,7 +148,7 @@ def greedyDec(H,maxCoreness,queryVertexes,queryAttributes):
                 VwList[w]=VwList[w]-1
         print 'VwList:',VwList
         ###更新图属性得分
-        N=nx.number_of_nodes(H)
+        N=nx.number_of_nodes(Hi)
         HAttrSocre=sum([float(val)* float(val)/float(N) for val in VwList.itervalues()])
         graphAttScores[deletCount]=HAttrSocre
         ####更新节点属性得分
@@ -169,12 +174,14 @@ def greedyDec(H,maxCoreness,queryVertexes,queryAttributes):
 def kcoreMaintain(H,maxCoreness,deletedVs,queryVs):
     if H:
         '删除节点后，保持最小度至少是maxCoreness'
+        ###这里是找最小度
         mind=H.degree(H.nodes()[0])
         minIndex=H.nodes()[0]
         for n in nx.nodes_iter(H):
             if H.degree(n)<mind:
                 mind=H.degree(n)
                 minIndex=n
+        ###若当前最小度小于规定的度，则进行删除啊
         if mind<maxCoreness:
             H.remove_node(minIndex)
             deletedVs.append(minIndex)
@@ -214,22 +221,64 @@ def displayTree(root,level):
             for chid in root.childList:
                 displayTree(chid,level+1)
 
+def dataReader2(edgefile,attrfile):
+    '读的是delicious类型的数据'
+    G=nx.read_edgelist(edgefile,nodetype=int) #从邻接表读取图数据
+    #读取节点的属性文件
+    f=open(attrfile)
+    for line in f.readlines():
+        words=line.split() ##第一个是id，后面跟着的都是属性
+        id=int(words[0])
+        attr=words[1]
+        if G.has_node(id):
+            if G.node[id].has_key('attr'):
+                G.node[id]['attr'].append(attr)
+            else:
+                G.node[id]['attr']=[] #新加一个列表
+    return G
+
+def selectQuery(G):
+    '筛选查询节点和查询属性'
+    '1. 先选一个最大的连通分量'
+    Gc=max(nx.connected_component_subgraphs(G),key=len)
+    '2. 计算这个连通分量的k-core分解'
+    coreIndex=nx.core_number(Gc)
+    '3. 将节点按照core值分组'
+     #将节点按照core number进行分组
+    Vk=defaultdict(list) #字典的value是列表
+    sortedVk={}
+    for key in sorted(Vk.keys(),reverse=True):#Vk按照core值从大到小排序
+        sortedVk[key]=Vk[key]
+
+
+
+
 
 if __name__=="__main__":
-    graphFile='Data/toyTruess-graph'
-    nodeFile='Data/toyTruess-node'
-    G=dataReader(graphFile,nodeFile)
-    shellIndex = ShellIndex(G)
-    shellIndex.build()
-    root=shellIndex.root
-    #打印树
-    # displayTree(root,0)
-    queryVertexes=[1]
-    resTNodes,H,maxCoreness =retrieveCSM(queryVertexes,shellIndex)
-    print 'csm:',H.nodes()
-    print 'maxCoreness:',maxCoreness
-    ###假设没有指定查询属性，取查询节点属性的交集
-    queryAttributes=['ML']
-    H1=greedyDec(H,2,queryVertexes,queryAttributes)
-    print 'final res:',H1.nodes()
+    #################      TEST 1     ###############################
+    # graphFile='Data/toy-graph'
+    # nodeFile='Data/toy-node'
+    # G=dataReader(graphFile,nodeFile)
+    # print 'ok'
+    # shellIndex = ShellIndex(G)
+    # shellIndex.build()
+    # root=shellIndex.root
+    # #打印树
+    # # displayTree(root,0)
+    # queryVertexes=[1,3]
+    # resTNodes,H,maxCoreness =retrieveCSM(queryVertexes,shellIndex)
+    # print 'csm:',H.nodes()
+    # print 'maxCoreness:',maxCoreness
+    # ###假设没有指定查询属性，取查询节点属性的交集
+    # queryAttributes=['tree','algorithm']
+    # H1=greedyDec(H,3,queryVertexes,queryAttributes)
+    # print 'final res:',H1.nodes()
+
+    ####################   TEST 2   ##############################
+    edgefile='Data/delicious_alledges.dat'
+    labelfile='Data/user_tag2.dat'
+    G=dataReader2(edgefile,labelfile)
+    print 'ok'
+    nx.draw(G,node_size = 30,with_labels=True)
+    plt.show()
 
