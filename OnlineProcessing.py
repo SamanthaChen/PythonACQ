@@ -22,7 +22,7 @@ def dataReader(graphFile,nodeFile):
     return G
 
 def retrieveCSM(queryVertexes,index):
-    '这个算法存在问题'
+    '根据索引，找到包含查询节点的core最大的子图'
     queryVertexesCopy=copy.deepcopy(queryVertexes)#复制一个新的，因为后面要删除
     qVcopy=copy.deepcopy(queryVertexesCopy)
     vertexTNodeList=index.vertexTNodelist ##先把图节点到树节点的映射拿出来
@@ -84,45 +84,45 @@ def computeGAttrScore(H,attrNodeDict):
         HAttrSocre+=float(len(value))/float(N)
     return HAttrSocre
 
-def computeVAttrScore(H,VwList,queryAttributes):
+def computeVAttrScore(H,VwList,queryAttributes,queryVertexes):
     '计算节点的属性分数'
+     ##(re:2017.3.2 nodeAttScore改成字典)
     nodeAtteSocreDict={}
     for n in nx.nodes_iter(H):
-        nattr=H.node[n]['attr']
-        tmp=[val for val in nattr if val in queryAttributes]  #计算节点属性与查询属性的交集
-        score=sum([2.0*VwList[val]-1 for val in tmp])
-        nodeAtteSocreDict[n]=score
+        if n not in queryVertexes:####不计算查询节点的分数
+            nattr=H.node[n]['attr']
+            tmp=[val for val in nattr if val in queryAttributes]  #计算节点属性与查询属性的交集
+            score=sum([2.0*VwList[val]-1 for val in tmp])
+            nodeAtteSocreDict[n]=score
     return nodeAtteSocreDict
 
 def greedyDec(H,maxCoreness,queryVertexes,queryAttributes):
     '贪婪算法：每次循环删除一个属性分数最小的节点'
     '1:先获得初始的候选子图'
     Hi=copy.deepcopy(H) #先深拷贝一个子图
-    nodesNum=nx.number_of_nodes(Hi) #子图的节点个数
+    N=nx.number_of_nodes(Hi) #子图的节点个数
     deletedVertexes=[] #存放删除的节点
-    graphAttScores=[None]*(nodesNum+1) #存放删除对应节点后的子图分数
+    graphAttScores=[None]*(N+1) #存放删除对应节点后的子图分数
     '2:计算查询属性的倒排'
     attrNodeDict=computeInvertedAttr(H,queryAttributes)
     VwList={}###属性w<-->含有w的节点个数
     for key,value in attrNodeDict.items():
         VwList[key]=len(value) #(w,Vw个数)
+    print 'VwList:',VwList
     '3:计算图的属性分数'
-    HAttrSocre=sum([float(val)* float(val)/float(nodesNum) for val in VwList.itervalues()])
+    HAttrSocre=sum([float(val)* float(val)/float(N) for val in VwList.itervalues()])
     graphAttScores[0]=HAttrSocre
     '4:计算节点的属性分数'
-    nodeAtteSocreDict=computeVAttrScore(Hi,VwList,queryAttributes)
-    ##删除查询节点
-    for n in queryVertexes:
-        del nodeAtteSocreDict[n]
+    nodeAtteSocreDict=computeVAttrScore(Hi,VwList,queryAttributes,queryVertexes)
     '5:循环删除节点'
-    N=nodesNum ##节点数目
     deletCount=0# 删除的节点计数
     while Hi and nx.is_connected(Hi):
         '5.1:删除查询节点外属性得分最小的节点'
+        if not nodeAtteSocreDict: ###可能会出现除了查询节点，其他点都删完了
+            break
         u=min(nodeAtteSocreDict.items(),key=lambda x:x[1])[0] #最小score对应的节点
         deletCount+=1
         Hi.remove_node(u) #删除节点
-        N=N-1
         '5.2:确定删除后最小度仍能保持最小度'
         deletedVtmp=[] #存删除的节点
         deletedVtmp.append(u)
@@ -132,7 +132,6 @@ def greedyDec(H,maxCoreness,queryVertexes,queryAttributes):
         if not nx.is_connected(Hi): ##删除完了不连通或者删除到查询节点就删除
             break
         deletCount=deletCount+len(deletedVtmp)-1
-        N=N-(deletCount-1)
         for v in deletedVtmp:
             deletedVertexes.append(v) #更新删除的节点
         '5.3:更新相关的属性得分'
@@ -142,13 +141,25 @@ def greedyDec(H,maxCoreness,queryVertexes,queryAttributes):
             tmp=[val for val in nattr if val in queryAttributes]
             for w in tmp:
                 VwList[w]=VwList[w]-1
+        print 'VwList:',VwList
         ###更新图属性得分
+        N=nx.number_of_nodes(H)
         HAttrSocre=sum([float(val)* float(val)/float(N) for val in VwList.itervalues()])
         graphAttScores[deletCount]=HAttrSocre
         ####更新节点属性得分
-        nodeAtteSocreDict=computeVAttrScore(Hi,attrNodeDict,queryAttributes)
-    '6:删除完了，找删除过程中子图属性分数最大的，还远子图'
-    index=graphAttScores.index(max(graphAttScores))
+        nodeAtteSocreDict=computeVAttrScore(Hi,VwList,queryAttributes,queryVertexes)
+    '6:删除完了，找删除过程中子图属性分数最大的，还原子图'
+    print 'deleted vertexes:',deletedVertexes
+    print 'graphAttScores:',graphAttScores
+    '这里存在一个问题，可能会并列存在好几个最大值，那么应该取最后一个最大值，因为节点数最少（re:2017.3.2）'
+    maxScore=max(graphAttScores)
+    maxIndex=[]
+    i=0##索引
+    for score in graphAttScores:
+        if score==maxScore:
+            maxIndex.append(i)
+        i+=1
+    index=maxIndex[-1] ##取最后一个等于最大值的
     for i in range(index):
         H.remove_node(deletedVertexes[i])
     return H
@@ -205,20 +216,20 @@ def displayTree(root,level):
 
 
 if __name__=="__main__":
-
-    graphFile='Data/toy-graph'
-    nodeFile='Data/toy-node'
+    graphFile='Data/toyTruess-graph'
+    nodeFile='Data/toyTruess-node'
     G=dataReader(graphFile,nodeFile)
     shellIndex = ShellIndex(G)
     shellIndex.build()
     root=shellIndex.root
     #打印树
     # displayTree(root,0)
-    queryVertexes=[1,2,6]
+    queryVertexes=[1]
     resTNodes,H,maxCoreness =retrieveCSM(queryVertexes,shellIndex)
     print 'csm:',H.nodes()
     print 'maxCoreness:',maxCoreness
-    queryAttributes=['x','y','z']
-    H1=greedyDec(H,maxCoreness,queryVertexes,queryAttributes)
+    ###假设没有指定查询属性，取查询节点属性的交集
+    queryAttributes=['ML']
+    H1=greedyDec(H,2,queryVertexes,queryAttributes)
     print 'final res:',H1.nodes()
 
