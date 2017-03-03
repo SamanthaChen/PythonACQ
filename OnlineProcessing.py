@@ -237,22 +237,19 @@ def dataReader2(edgefile,attrfile):
                 G.node[id]['attr']=[] #新加一个列表
     return G
 
-def selectQuery(G):
-    '筛选查询节点和查询属性'
-    '1. 先选一个最大的连通分量'
-    Gc=max(nx.connected_component_subgraphs(G),key=len)
-    '2. 计算这个连通分量的k-core分解'
-    coreIndex=nx.core_number(Gc)
-    '3. 将节点按照core值分组'
-     #将节点按照core number进行分组
-    Vk=defaultdict(list) #字典的value是列表
-    sortedVk={}
-    for key in sorted(Vk.keys(),reverse=True):#Vk按照core值从大到小排序
-        sortedVk[key]=Vk[key]
+def dataReader3(adjlistFile,attrFile):
+    G=nx.read_adjlist(edgefile,nodetype=int)
+    ###读取属性文件，一行是一个节点和所有的属性
+    f=open(attrFile)
+    for line in f.readlines():
+        words=line.split()
+        id=int(words[0])
+        attrs=words[1:]
+        G.node[id]['attr']=attrs
+    return G
 
-
-
-
+def resWrite2File():
+    '将查询结果输出到文件'
 
 if __name__=="__main__":
     #################      TEST 1     ###############################
@@ -275,10 +272,97 @@ if __name__=="__main__":
     # print 'final res:',H1.nodes()
 
     ####################   TEST 2   ##############################
-    edgefile='Data/delicious_alledges.dat'
-    labelfile='Data/user_tag2.dat'
-    G=dataReader2(edgefile,labelfile)
-    print 'ok'
-    nx.draw(G,node_size = 30,with_labels=True)
-    plt.show()
+    # edgefile='Data/delicious_graph'
+    # labelfile='Data/delicious_nodelabel'
+    #
+    # print 'Reading graph...'
+    # G=dataReader3(edgefile,labelfile)
+    #
+    # print 'Index building...'
+    # shellIndex = ShellIndex(G)
+    # shellIndex.build()
+    # root=shellIndex.root
+    # # #打印树
+    # # print 'Index Tree:'
+    # # displayTree(root,0)
+    #
+    # queryVertex=[130,119,149,215]
+    # queryAttr=['205','158','28']
+    #
+    # print 'retrieveCSM...'
+    # resTNodes,H,maxCoreness =retrieveCSM(queryVertex,shellIndex)
+    # print 'csm:',H.nodes()
+    # print 'maxCoreness:',maxCoreness
+    #
+    # print 'querying...'
+    # H1=greedyDec(H,10,queryVertex,queryAttr)
+    # print 'final res:',H1.nodes()
+
+
+    ###############################################################################
+    ####      读query文件，并将结果输出（注意结果文件与query文件相对应）###########
+    ###############################################################################
+    path='L:/ACQData/'
+    dataset='delicious'
+    edgefile=path+'inputfile/'+dataset+'_graph'
+    labelfile=path+'inputfile/'+dataset+'_nodelabel'
+    queryfile=path+dataset+'_Query.txt'
+    queryVertexes=[] ##包含所有的查询节点
+    queryAtts=[] ###包含所有的查询属性
+    fq=open(queryfile,'r')
+    lineCount=0
+    for line in fq.readlines():
+        lineCount+=1
+        line.strip("") #把末尾换行符去掉
+        words=line.split('\t')
+
+        nodeStartid=words.index('node:')  ####查询节点开始的位置
+        attrsStartid=words.index('attrs:') ####查询属性开始的位置
+
+        tmp=words[nodeStartid+1:attrsStartid]
+        if(len(tmp)==0):  #####可能会出现查询节点为空
+            break
+        nodeList=[]
+        for val in tmp:
+            if val:
+                nodeList.append(int(val))
+        queryVertexes.append(nodeList)
+
+        attrList=words[attrsStartid+1:] ###选择所以关键词
+        attrList[-1].strip('\n')  ##去不掉最后一个换行符。。
+        queryAtts.append(attrList)
+
+    fq.close()
+
+
+
+
+    print 'Reading graph...'
+    G=dataReader3(edgefile,labelfile)
+
+    print 'Index building...'
+    shellIndex = ShellIndex(G)
+    shellIndex.build()
+    root=shellIndex.root
+    # #打印树
+    # print 'Index Tree:'
+    # displayTree(root,0)
+
+    outfile=path+dataset+'_Query_w6_csm_res.txt'
+    wf=open(outfile,'w')
+    for i in range(lineCount):
+        print '**************************************************************************'
+        print 'NO.'+str(i)+' querying...'
+        qnode=queryVertexes[i]
+        qattr=queryAtts[i]
+        print 'retrieveCSM...'
+        resTNodes,H,maxCoreness =retrieveCSM(qnode,shellIndex)
+        print 'csm:',H.nodes()
+        print 'maxCoreness:',maxCoreness
+        Hi=greedyDec(H,maxCoreness,qnode,qattr)
+        print 'final res:',Hi.nodes()
+        wf.write(str(Hi.nodes())+'\n')
+        print '**************************************************************************'
+    wf.close()
+
 
