@@ -17,6 +17,7 @@ def dataReader(graphFile,nodeFile):
     #读取节点的属性文件
     f=open(nodeFile)
     for line in f.readlines():
+        line=line.strip('\n')
         words = line.split('\t') ###name和属性是ab分割，但是属性是空格分割
         attrs=words[2].split(' ')
         G.node[int(words[0])]["name"]=words[1] #读取节点的name
@@ -93,9 +94,12 @@ def computeVAttrScore(H,VwList,queryAttributes,queryVertexes):
     for n in nx.nodes_iter(H):
         if n not in queryVertexes:####不计算查询节点的分数
             nattr=H.node[n]['attr']
-            tmp=[val for val in nattr if val in queryAttributes]  #计算节点属性与查询属性的交集
-            score=sum([2.0*VwList[val]-1 for val in tmp])
-            nodeAtteSocreDict[n]=score
+            if nattr is not None:
+                tmp=[val for val in nattr if val in queryAttributes]  #计算节点属性与查询属性的交集
+                score=sum([2.0*VwList[val]-1 for val in tmp])
+                nodeAtteSocreDict[n]=score
+            else:
+                nodeAtteSocreDict[n]=0
     return nodeAtteSocreDict
 
 def greedyDec(H,maxCoreness,queryVertexes,queryAttributes):
@@ -170,7 +174,6 @@ def greedyDec(H,maxCoreness,queryVertexes,queryAttributes):
     return H
 
 
-
 def kcoreMaintain(H,maxCoreness,deletedVs,queryVs):
     if H:
         '删除节点后，保持最小度至少是maxCoreness'
@@ -193,12 +196,18 @@ def computeInvertedAttr(G,queryAttrs):
     '计算查询节点属性的倒排'
     attrNodeDict=defaultdict(list) #<属性，节点集合>
     for id in nx.nodes_iter(G):
-        for attr in G.node[id]['attr']:
-                if attr in queryAttrs:
-                    attrNodeDict[attr].append(id)
+        # print 'id:',str(id),G.node[id]
+        ####################可能存在有节点但是没有属性(2017.3.4)###############
+        if G.node[id].has_key('attr'):
+            if G.node[id]['attr'] is not None: ##判断是不是等于None
+                for attr in  G.node[id]['attr']:
+                        if attr in queryAttrs:
+                            attrNodeDict[attr].append(id)
     return attrNodeDict
 
 
+def greedyConnection(H,maxCoreness,queryVertexes,queryAttributes):
+    '从CSM的结果开始，对搜索空间添加节点直到连通'
 
 
 def displayTree(root,level):
@@ -227,6 +236,7 @@ def dataReader2(edgefile,attrfile):
     #读取节点的属性文件
     f=open(attrfile)
     for line in f.readlines():
+        line=line.strip('\n')
         words=line.split() ##第一个是id，后面跟着的都是属性
         id=int(words[0])
         attr=words[1]
@@ -239,13 +249,18 @@ def dataReader2(edgefile,attrfile):
 
 def dataReader3(adjlistFile,attrFile):
     G=nx.read_adjlist(edgefile,nodetype=int)
+    ###################处理一下有节点没有属性的情况（2017.3.4）
+    for n in G.nodes():
+        G.node[n]['attr']=None
     ###读取属性文件，一行是一个节点和所有的属性
     f=open(attrFile)
     for line in f.readlines():
+        line=line.strip('\n')
         words=line.split()
         id=int(words[0])
         attrs=words[1:]
-        G.node[id]['attr']=attrs
+        if G.has_node(id):###可能存没有节点但是有属性
+            G.node[id]['attr']=attrs
     return G
 
 def resWrite2File():
@@ -303,17 +318,19 @@ if __name__=="__main__":
     ####      读query文件，并将结果输出（注意结果文件与query文件相对应）###########
     ###############################################################################
     path='L:/ACQData/'
-    dataset='delicious'
+    dataset='dblps'
+    algo='grdec/'
     edgefile=path+'inputfile/'+dataset+'_graph'
     labelfile=path+'inputfile/'+dataset+'_nodelabel'
-    queryfile=path+dataset+'_Query.txt'
+    queryfile=path+dataset+'_Query_wall.txt'
+    outfile=path+algo+dataset+'_Query_wall_csm_res.txt'
     queryVertexes=[] ##包含所有的查询节点
     queryAtts=[] ###包含所有的查询属性
     fq=open(queryfile,'r')
     lineCount=0
     for line in fq.readlines():
         lineCount+=1
-        line.strip("") #把末尾换行符去掉
+        line=line.strip("\n") #把末尾换行符去掉
         words=line.split('\t')
 
         nodeStartid=words.index('node:')  ####查询节点开始的位置
@@ -348,7 +365,7 @@ if __name__=="__main__":
     # print 'Index Tree:'
     # displayTree(root,0)
 
-    outfile=path+dataset+'_Query_w6_csm_res.txt'
+
     wf=open(outfile,'w')
     for i in range(lineCount):
         print '**************************************************************************'
@@ -361,7 +378,11 @@ if __name__=="__main__":
         print 'maxCoreness:',maxCoreness
         Hi=greedyDec(H,maxCoreness,qnode,qattr)
         print 'final res:',Hi.nodes()
-        wf.write(str(Hi.nodes())+'\n')
+        ####文件输出
+        string=''
+        for node in Hi.nodes():
+            string+=str(node)+' ' ####空格分割
+        wf.write(string+'\n')
         print '**************************************************************************'
     wf.close()
 
