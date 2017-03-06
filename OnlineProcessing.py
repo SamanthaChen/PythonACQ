@@ -10,6 +10,9 @@ import copy
 from ShellStructIndex import ShellStructIndex as ShellIndex
 from collections import defaultdict
 import matplotlib.pyplot as plt
+import Queue
+from SteinTree import *
+from LIHeuristic import LIHeuristic
 
 def dataReader(graphFile,nodeFile):
     '根据图文件（邻接链表格式）和节点文件（节点-别名-属性）读取图'
@@ -79,6 +82,87 @@ def retrieveCSM(queryVertexes,index):
     H=ShellIndex.G.subgraph(resVertexes) #根据包含的节点获得子图，但是不包含节点属性
     return csmTNodes,H,maxCoreness
 
+def retrieveCST(queryVertexes,index,givenk):
+    '类似于CSM的结果中获得CST(k)的结果'
+    '根据索引，找到包含查询节点的core最大的子图'
+    queryVertexesCopy=copy.deepcopy(queryVertexes)#复制一个新的，因为后面要删除
+    vertexTNodeList=index.vertexTNodelist ##先把图节点到树节点的映射拿出来
+    '自底向上，一层层往上找，最终的查询节点会汇聚到一个最低的公共祖先'
+    '步骤1：计算查询节点集合中最大的coreness'
+    maxQCore = 0
+    for query in queryVertexesCopy:
+        if index.coreDict[query]>maxQCore:
+            maxQCore=index.coreDict[query]
+    '步骤2:从底层开始往上找最低公共祖先'
+    csmTNodes=[] #存储的是包含查询节点的csm候选树节点集合（要不要改成图节点啊）
+    candinateTNodes=set() ###包含查询节点和所有的候选节点
+    k=maxQCore
+    flag=False
+    while not ((len(candinateTNodes)==1) and (len(queryVertexesCopy)==0)):
+        '2.1：筛选core=k的节点（1.query节点集里2.候选节点集里）'
+        vk=[]
+        vk=filter(lambda x:vertexTNodeList[x].core==k,queryVertexesCopy) #1.query节点里面core=k的节点
+        tk=[]
+        if candinateTNodes:
+            tk=filter(lambda y:y.core==k,candinateTNodes) #2.候选树节点里面core=k的节点
+        '步骤2.2：ccore-k的节点加入结果集，其父母加入候选节点集'
+        alltk=set() ##这一层的所有候选节点
+        if vk:
+            for v in vk:
+                alltk.add(vertexTNodeList[v])
+                candinateTNodes.add(vertexTNodeList[v].parent) #这一层查询节点的父母也做候选集合
+                queryVertexesCopy.remove(v) #查询节点访问过了就删除
+        if tk:
+            for t in tk:
+                alltk.add(t)
+                candinateTNodes.add(t.parent)
+                candinateTNodes.remove(t) #候选节点访问过了就删除，但是需要把候选节点的父母加上
+        for tt in alltk:
+            csmTNodes.append(tt)
+        k=k-1
+        '步骤2.3：判断最后一个lca是否需要加入到节点集里面'
+        ##增加的一个标志位,为了判断最后的lca要不要加入到结果中区(2017.2.27)
+        if len(alltk)==1 and len(candinateTNodes)==1 and (not queryVertexesCopy):
+            flag=True
+    # ###把最后的lca也加入最终结果??
+    if not flag:
+        csmTNodes.append(list(candinateTNodes)[0])
+    ###获得最大最小度
+    maxCoreness=csmTNodes[-1].core
+    #####重新设置这两个变量
+    lowCoreness=maxCoreness
+    highCoreness=maxQCore
+    '步骤3：从LCA开始往上找，一直找到k'
+    tmpCoreness=lowCoreness
+    tmpNode=csmTNodes[-1] ##最顶上的树节点
+    while tmpCoreness>givenk and tmpNode.parent:
+        csmTNodes.append(tmpNode.parent)
+        tmpNode=tmpNode.parent
+        tmpCoreness=tmpNode.core
+    '步骤4:BFS,把所有候选树节点的孩子节点全都加进来'
+    lcaTNode=csmTNodes[-1]
+    candTNodeSet=[]
+    queue=[]
+    queue.append(lcaTNode)
+    ###BFS
+    while len(queue)>0:
+        curTNode=queue[0]
+        candTNodeSet.append(curTNode)
+        queue.remove(curTNode)
+        if curTNode.childList:
+            for child in curTNode.childList:
+                queue.append(child)
+
+    '步骤5：把树节点包含的所有的图节点加入到结果集合'
+    resVertexes=[]
+    for tnode in candTNodeSet:
+        for v in tnode.nodeList:
+            resVertexes.append(v)
+    resH=index.G.subgraph(resVertexes) #根据包含的节点获得子图，但是不包含节点属性
+    return resH
+
+
+
 def computeGAttrScore(H,attrNodeDict):
     '计算子图的属性分数'
     HAttrSocre=0
@@ -146,7 +230,7 @@ def greedyDec(H,maxCoreness,queryVertexes,queryAttributes):
         '5.3:更新相关的属性得分'
         for v in deletedVtmp:
             ###统计受影响的属性
-            nattr=G.node[v]['attr']
+            nattr=H.node[v]['attr']
             tmp=[val for val in nattr if val in queryAttributes]
             for w in tmp:
                 VwList[w]=VwList[w]-1
@@ -205,9 +289,177 @@ def computeInvertedAttr(G,queryAttrs):
                             attrNodeDict[attr].append(id)
     return attrNodeDict
 
-
+from RankNode import RankNode
+import Queue
 def greedyConnection(H,maxCoreness,queryVertexes,queryAttributes):
-    '从CSM的结果开始，对搜索空间添加节点直到连通'
+    '从CSM的结果开始，对搜索空间添加节点直到连通(2017.3.5)'
+    '1:查询节点加入'
+    H=nx.Graph()  #####后面记得删这句
+    N=nx.number_of_nodes(H)
+    resNodeSet=set()
+    resG=nx.Graph()
+    ###用一个字典存结果集中的度
+    resNodeDegreeDict={}
+    resMinD=N
+    ####度列表
+    degreeDict={}
+    for i in range(maxCoreness+1):
+        degreeDict[i]=[]
+    ###初始化属性集列表
+    VwList={}
+    for qa in queryAttributes:
+        VwList[qa]=0
+
+    '2:计算查询属性的倒排'
+    attrNodeDict=computeInvertedAttr(H,queryAttributes)
+    '3:扩张'
+    connectAttScoreDict={}
+    queue=[]
+    for q in queryVertexes:##将查询节点入队，优先级设为无穷大
+        qrank=RankNode(q,float("inf"),0)
+        queue.append(qrank)
+    while not queue:
+        curNode=sorted(queue).pop(0)
+        resNodeSet.add(curNode)
+        resG=H.subgraph(resNodeSet) ###费时吗？
+        '更新最小度'
+        if nx.is_connected(resG) and resMinD>=maxCoreness:
+            break
+        for nei in H.neighbors(curNode):
+            if (nei not in resNodeSet) and (nei not in queue):
+                '计算连通分数'
+                interSectN=[val for val in H.neighbors(nei) if val in resNodeSet]
+                conScore=len(interSectN)
+                '计算属性得分'
+                attScore=0
+                if  H.node[q]['attr'] is not None:
+                    interSectA=[val for val in H.node[nei]['attr'] if val in queryAttributes]
+                    for a in interSectN:
+                        attScore+=2.0*(VwList[a]+1)-1
+                '加入队列'
+                queue.append(RankNode(nei,conScore,attScore))
+
+
+
+def csmSTTree11111(H,maxCoreness,queryVertexs,queryAttrs,alpha):
+    '以CSM的结果为候选集，先找一颗斯坦纳树，再局部扩张'
+    iteration=len(H)-len(queryVertexs)  ###最大迭代次数
+    '1.从候选图中找斯坦纳树'
+    stG=buildSteinerTree(queryVertexs,H)
+    solution=stG.nodes() ##当前解
+    '2.局部搜索，同时计算子图得分'
+    ####下面这两个先测试一下，后面看情况调整
+    graphAttSocre=[None]*(iteration+1)
+    graphMinDegree=[None]*(iteration+1)
+    graphMinDegree[0]=min(stG.degree(),key=lambda x:x[1]) ##取最小度
+    #####统计一下原来的查询属性的频率
+    VwList={} ##子图中对应查询属性覆盖的节点数
+    VwList.fromkeys(queryAttrs,0)###批量初始化
+    for qa in queryAttrs:
+        for node in stG:
+            if stG.node[node].has_key('attr') and stG.node[node]['attr']!=None:
+                for na in stG.node[node]['attr']:
+                    if na==qa:
+                        VwList[qa]+=1
+    graphAttSocre[0]=[val*val/float(len(stG)) for val in VwList]
+    ###先算一下当前一度邻居
+    queue=Queue.PriorityQueue()  ##创建一个优先队列(注意优先队列默认是小到大)
+    ###初始化连接类
+    connection=LIHeuristic(H,stG.nodes()) ##初始化已经把srG的一度邻居的链接分数计算了
+    neighbors=connection.nodeGroup.keys() ##
+    ####计算一下当前一度邻居的分数，并放入队列
+    aScore={}
+    aScore.fromkeys(neighbors,0.0)
+    cScore={}
+    cScore.fromkeys(neighbors,0.0)
+    totalScore={}
+    totalScore.fromkeys(neighbors,0.0)
+    maxaScore=0
+    maxcScore=0
+    for n in neighbors:
+        ####计算连接分数
+        cScore[n]=connection.nodeGroup[n] #连接个数
+        if cScore[n]>maxcScore:
+            maxcScore=cScore[n]
+        #####计算属性得分
+        if H.node[n].has_key('attr') and H.node[n]['attr']!=None:
+            for a in H.node[n]['attr']:
+                if a in queryAttrs:
+                    aScore[n]+=2*VwList[a]-1
+        if aScore[n]>maxaScore:
+            maxcScore=aScore[n]
+    ###最后归一化计算总分数
+    visitedNodes=[]
+    visitedNodes.addAll(stG.nodes())  ##存所有访问过的节点
+    for n in neighbors:
+        tmp=alpha*(cScore[n]/maxcScore)+(1-alpha)(aScore[n]/maxaScore)
+        totalScore[n]=tmp
+        queue.put((-tmp,n))
+    count=1
+    while not queue.empty():
+        ##取出得分最高的
+        curNode=queue.get(0)
+        ###加入结果集合
+        solution.append(curNode)
+        visitedNodes.append(curNode)
+        ##更新VwList
+        if H.node[n].has_key('attr') and H.node[n]['attr']!=None:
+            for a in H.node[n]['attr']:
+                if a in queryAttrs:
+                    VwList[a]+=1
+        ###更新子图属性得分
+        graphAttSocre[count]=[val*val/float(len(stG)) for val in VwList]
+        ###更新最小度（后面记得删掉，太耗时间）
+        subgraph=H.subgraph(solution)
+        graphMinDegree[0]=min(subgraph.degree(),key=lambda x:x[1]) ##取最小度
+        count+=1
+        ####将当前节点的未访问邻居加入到queue
+        # for nei in H.neighbors(curNode):
+            # if nei not in solution:
+
+def csmSTTree(H,maxCoreness,queryVertexs,queryAttrs,alpha):
+    '以CSM的结果为候选集，先找一颗斯坦纳树，再局部扩张'
+    iteration=nx.number_of_nodes(H)  ###最大迭代次数
+    '1.从候选图中找斯坦纳树'
+    stG=buildSteinerTree(queryVertexs,H)
+    solution=stG.nodes() ##当前解
+    '2.局部搜索，同时计算子图得分'
+    ####下面这两个先测试一下，后面看情况调整
+    graphAttSocre=[]
+    graphMinDegree=[]
+    print stG.degree()
+    graphMinDegree.append(min(stG.degree().items(),key=lambda x:x[1])[1]) ##取最小度
+
+    ###初始化连接类
+    heuristic=LIHeuristic(H,stG,queryAttrs,alpha) ##初始化已经把srG的一度邻居的链接分数计算了
+    graphAttSocre.append(sum([val*val/float(len(stG)) for val in heuristic.VwList.values()]))
+    curNode=heuristic.getBestNode()##取出得分最高的
+    print 'curNode:',str(curNode)
+    count=0
+    while curNode!=-1:
+        ###加入结果集合
+        solution.append(curNode) ##最终结果集合包含的节点
+        ###更新子图属性得分
+        count+=1
+        print 'count:',count
+        subgraph=H.subgraph(solution)
+        graphAttSocre.append(sum([val*val/float(len(subgraph)) for val in heuristic.VwList.values()]))
+        ###更新最小度（后面记得删掉，太耗时间）
+        graphMinDegree.append(min(subgraph.degree().items(),key=lambda x:x[1])[1]) ##取最小度
+        count+=1
+        ####将当前节点的未访问邻居加入到queue
+        for nei in H.neighbors(curNode):
+            if (nei not in solution) and (nei not in heuristic.nodeGroup.keys()):
+                if H.degree(nei)>maxCoreness:
+                    heuristic.addNode(nei)
+
+        curNode=heuristic.getBestNode()
+        print 'curNode:',str(curNode)
+
+    print 'graphMinDegree:',graphMinDegree
+    print 'graphAttSocre:',graphAttSocre
+    subgraph=H.subgraph(H)
+    return subgraph
 
 
 def displayTree(root,level):
@@ -248,7 +500,7 @@ def dataReader2(edgefile,attrfile):
     return G
 
 def dataReader3(adjlistFile,attrFile):
-    G=nx.read_adjlist(edgefile,nodetype=int)
+    G=nx.read_adjlist(adjlistFile,nodetype=int)
     ###################处理一下有节点没有属性的情况（2017.3.4）
     for n in G.nodes():
         G.node[n]['attr']=None
@@ -263,10 +515,13 @@ def dataReader3(adjlistFile,attrFile):
             G.node[id]['attr']=attrs
     return G
 
+def dataReader4(adhListFile,attrFile):
+    '处理节点不连续的文件'
+
 def resWrite2File():
     '将查询结果输出到文件'
 
-if __name__=="__main__":
+def runcsmGrD():
     #################      TEST 1     ###############################
     # graphFile='Data/toy-graph'
     # nodeFile='Data/toy-node'
@@ -318,7 +573,7 @@ if __name__=="__main__":
     ####      读query文件，并将结果输出（注意结果文件与query文件相对应）###########
     ###############################################################################
     path='L:/ACQData/'
-    dataset='dblps'
+    dataset='citeseer'
     algo='grdec/'
     edgefile=path+'inputfile/'+dataset+'_graph'
     labelfile=path+'inputfile/'+dataset+'_nodelabel'
@@ -350,8 +605,6 @@ if __name__=="__main__":
         queryAtts.append(attrList)
 
     fq.close()
-
-
 
 
     print 'Reading graph...'
@@ -386,4 +639,178 @@ if __name__=="__main__":
         print '**************************************************************************'
     wf.close()
 
+
+def outPutcsm():
+    path='L:/ACQData/'
+    dataset='dblps'
+    algo='csm/'
+    edgefile=path+'inputfile/'+dataset+'_graph'
+    labelfile=path+'inputfile/'+dataset+'_nodelabel'
+    queryfile=path+dataset+'_Query_wall.txt'
+    outfile=path+algo+dataset+'_Query_wall_CSMnode.txt'
+    queryVertexes=[] ##包含所有的查询节点
+    queryAtts=[] ###包含所有的查询属性
+    fq=open(queryfile,'r')
+    lineCount=0
+    for line in fq.readlines():
+        lineCount+=1
+        line=line.strip("\n") #把末尾换行符去掉
+        words=line.split('\t')
+
+        nodeStartid=words.index('node:')  ####查询节点开始的位置
+        attrsStartid=words.index('attrs:') ####查询属性开始的位置
+
+        tmp=words[nodeStartid+1:attrsStartid]
+        if(len(tmp)==0):  #####可能会出现查询节点为空
+            break
+        nodeList=[]
+        for val in tmp:
+            if val:
+                nodeList.append(int(val))
+        queryVertexes.append(nodeList)
+
+        attrList=words[attrsStartid+1:] ###选择所以关键词
+        attrList[-1].strip('\n')  ##去不掉最后一个换行符。。
+        queryAtts.append(attrList)
+
+    fq.close()
+
+
+    print 'Reading graph...'
+    G=dataReader3(edgefile,labelfile)
+
+    print 'Index building...'
+    shellIndex = ShellIndex(G)
+    shellIndex.build()
+    root=shellIndex.root
+    # #打印树
+    # print 'Index Tree:'
+    # displayTree(root,0)
+
+    wf=open(outfile,'w')
+    for i in range(lineCount):
+        print '**************************************************************************'
+        print 'NO.'+str(i)+' querying...'
+        qnode=queryVertexes[i]
+        qattr=queryAtts[i]
+        print 'retrieveCSM...'
+        resTNodes,H,maxCoreness =retrieveCSM(qnode,shellIndex)
+        print 'csm:',H.nodes()
+        print 'maxCoreness:',maxCoreness
+
+        ####文件输出
+        string=''
+        for node in H.nodes():
+            string+=str(node)+' ' ####空格分割
+        wf.write(string+'\n')
+        print '**************************************************************************'
+    wf.close()
+
+def runcstGrd():
+      ###############################################################################
+    ####      读query文件，并将结果输出（注意结果文件与query文件相对应）###########
+    ###############################################################################
+    path='L:/ACQData/'
+    dataset='delicious'
+    algo='cstGrd/'
+    k=8
+    edgefile=path+'inputfile/'+dataset+'_graph'
+    labelfile=path+'inputfile/'+dataset+'_nodelabel'
+    queryfile=path+dataset+'_Query_wall.txt'
+    outfile=path+algo+dataset+'_Query_wall_cstGrd_k'+str(k)+'_res.txt'
+    queryVertexes=[] ##包含所有的查询节点
+    queryAtts=[] ###包含所有的查询属性
+
+    fq=open(queryfile,'r')
+    lineCount=0
+    for line in fq.readlines():
+        lineCount+=1
+        line=line.strip("\n") #把末尾换行符去掉
+        words=line.split('\t')
+
+        nodeStartid=words.index('node:')  ####查询节点开始的位置
+        attrsStartid=words.index('attrs:') ####查询属性开始的位置
+
+        tmp=words[nodeStartid+1:attrsStartid]
+        if(len(tmp)==0):  #####可能会出现查询节点为空
+            break
+        nodeList=[]
+        for val in tmp:
+            if val:
+                nodeList.append(int(val))
+        queryVertexes.append(nodeList)
+
+        attrList=words[attrsStartid+1:] ###选择所以关键词
+        attrList[-1].strip('\n')  ##去不掉最后一个换行符。。
+        queryAtts.append(attrList)
+
+    fq.close()
+
+
+    print 'Reading graph...'
+    G=dataReader3(edgefile,labelfile)
+
+    print 'Index building...'
+    shellIndex = ShellIndex(G)
+    shellIndex.build()
+    root=shellIndex.root
+    # #打印树
+    # print 'Index Tree:'
+    # displayTree(root,0)
+
+
+    wf=open(outfile,'w')
+    for i in range(lineCount):
+        print '**************************************************************************'
+        print 'NO.'+str(i)+' querying...'
+        qnode=queryVertexes[i]
+        qattr=queryAtts[i]
+        print 'retrieveCST,k=',str(k),'...'
+        H =retrieveCST(qnode,shellIndex,k)
+        print 'cst:',H.nodes()
+        Hi=greedyDec(H,k,qnode,qattr)
+        print 'final res:',Hi.nodes()
+        ####文件输出
+        string=''
+        for node in Hi.nodes():
+            string+=str(node)+' ' ####空格分割
+        wf.write(string+'\n')
+        print '**************************************************************************'
+    wf.close()
+
+if __name__=="__main__":
+
+
+
+    ###############################################################################
+    ####      读query文件，并将结果输出（注意结果文件与query文件相对应）###########
+    ###############################################################################
+    path='Data/'
+    dataset='delicious'
+    algo='csmSTTree/'
+    edgefile=path+dataset+'_graph'
+    labelfile=path+dataset+'_nodelabel'
+    queryVertexes=[1,2,3] ##包含所有的查询节点
+    queryAtts=['2','51'] ###包含所有的查询属性
+
+
+    print 'Reading graph...'
+    G=dataReader3(edgefile,labelfile)
+
+    print 'Index building...'
+    shellIndex = ShellIndex(G)
+    shellIndex.build()
+    root=shellIndex.root
+    # #打印树
+    # print 'Index Tree:'
+    # displayTree(root,0)
+    print  'querying...'
+    qnode=queryVertexes
+    qattr=queryAtts
+    print 'retrieveCSM...'
+    resTNodes,H,maxCoreness =retrieveCSM(qnode,shellIndex)
+    print 'csm:',H.nodes()
+    print 'maxCoreness:',maxCoreness
+    Hi=csmSTTree(H,maxCoreness,qnode,qattr,0.5)  ####最后一个参数是结构和属性的权衡分数
+    print 'final res:',Hi.nodes()
 
