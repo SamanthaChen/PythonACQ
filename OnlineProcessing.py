@@ -7,6 +7,7 @@
 """
 import networkx as nx
 import copy
+from math import log
 from ShellStructIndex import ShellStructIndex as ShellIndex
 from collections import defaultdict
 import matplotlib.pyplot as plt
@@ -419,48 +420,69 @@ def csmSTTree11111(H,maxCoreness,queryVertexs,queryAttrs,alpha):
 
 def csmSTTree(H,maxCoreness,queryVertexs,queryAttrs,alpha):
     '以CSM的结果为候选集，先找一颗斯坦纳树，再局部扩张'
-    iteration=nx.number_of_nodes(H)  ###最大迭代次数
     '1.从候选图中找斯坦纳树'
     stG=buildSteinerTree(queryVertexs,H)
+    N=nx.number_of_nodes(stG)
     solution=stG.nodes() ##当前解
     '2.局部搜索，同时计算子图得分'
     ####下面这两个先测试一下，后面看情况调整
     graphAttSocre=[]
+    graphAttEntropy=[] ##用熵做子图属性分数
+    graphAttEntropy2=[]
     graphMinDegree=[]
-    print stG.degree()
     graphMinDegree.append(min(stG.degree().items(),key=lambda x:x[1])[1]) ##取最小度
+    selectedNodes=[]
 
     ###初始化连接类
     heuristic=LIHeuristic(H,stG,queryAttrs,alpha) ##初始化已经把srG的一度邻居的链接分数计算了
-    graphAttSocre.append(sum([val*val/float(len(stG)) for val in heuristic.VwList.values()]))
+    graphAttSocre.append(sum([val*val/float(N) for val in heuristic.VwList.values()]))
+    graphAttEntropy.append(sum([ entropy( val/float(N) ) for val in heuristic.VwList.values()]))
+    graphAttEntropy2.append(sum([  (val/float(N))*entropy(val / float(N)) for val in heuristic.VwList.values()]))
+    # print 'connected：', heuristic.connectedScore
+    # print 'attribute:', heuristic.attributeScore
+    # print 'total:', heuristic.totalScore
     curNode=heuristic.getBestNode()##取出得分最高的
-    print 'curNode:',str(curNode)
-    count=0
-    while curNode!=-1:
+    selectedNodes.append(curNode)
+    # print 'curNode:',str(curNode)
+
+
+    while curNode!=-1: ####扩张到没有候选节点或者到达最大coreness停止
         ###加入结果集合
         solution.append(curNode) ##最终结果集合包含的节点
         ###更新子图属性得分
-        count+=1
-        print 'count:',count
         subgraph=H.subgraph(solution)
-        graphAttSocre.append(sum([val*val/float(len(subgraph)) for val in heuristic.VwList.values()]))
+        N=nx.number_of_nodes(subgraph)
+        graphAttSocre.append(sum([val*val / float(N) for val in heuristic.VwList.values()]))
+        graphAttEntropy.append(sum([entropy(val / float(N)) for val in heuristic.VwList.values()]))
+        graphAttEntropy2.append(sum([(val / float(N))*entropy(val / float(N)) for val in heuristic.VwList.values()]))
         ###更新最小度（后面记得删掉，太耗时间）
         graphMinDegree.append(min(subgraph.degree().items(),key=lambda x:x[1])[1]) ##取最小度
-        count+=1
+        if graphMinDegree[-1]==maxCoreness:
+            break
         ####将当前节点的未访问邻居加入到queue
         for nei in H.neighbors(curNode):
             if (nei not in solution) and (nei not in heuristic.nodeGroup.keys()):
                 if H.degree(nei)>maxCoreness:
-                    heuristic.addNode(nei)
+                    heuristic.addNode(nei,solution)
 
+        # print 'connected：', heuristic.connectedScore
+        # print 'attribute:', heuristic.attributeScore
+        # print 'total:', heuristic.totalScore
         curNode=heuristic.getBestNode()
-        print 'curNode:',str(curNode)
+        selectedNodes.append(curNode)
+        # print 'curNode:',str(curNode)
 
     print 'graphMinDegree:',graphMinDegree
     print 'graphAttSocre:',graphAttSocre
+    print 'graphAttEntropy:',graphAttEntropy
+    print 'graphAttEntropy2:', graphAttEntropy2
+    print 'selectedNodes:',selectedNodes
     subgraph=H.subgraph(H)
     return subgraph
 
+def entropy(p):
+    '熵的计算'
+    return -p*log(p,2)
 
 def displayTree(root,level):
     '打印树'
@@ -517,63 +539,60 @@ def dataReader3(adjlistFile,attrFile):
 
 def dataReader4(adhListFile,attrFile):
     '处理节点不连续的文件'
+def test():
+    ################      TEST 1     ###############################
+    graphFile='Data/toy-graph'
+    nodeFile='Data/toy-node'
+    G=dataReader(graphFile,nodeFile)
+    print 'ok'
+    shellIndex = ShellIndex(G)
+    shellIndex.build()
+    root=shellIndex.root
+    #打印树
+    # displayTree(root,0)
+    queryVertexes=[1,3]
+    resTNodes,H,maxCoreness =retrieveCSM(queryVertexes,shellIndex)
+    print 'csm:',H.nodes()
+    print 'maxCoreness:',maxCoreness
+    ###假设没有指定查询属性，取查询节点属性的交集
+    queryAttributes=['tree','algorithm']
+    H1=greedyDec(H,3,queryVertexes,queryAttributes)
+    print 'final res:',H1.nodes()
 
-def resWrite2File():
-    '将查询结果输出到文件'
+    ###################   TEST 2   ##############################
+    edgefile='Data/delicious_graph'
+    labelfile='Data/delicious_nodelabel'
+
+    print 'Reading graph...'
+    G=dataReader3(edgefile,labelfile)
+
+    print 'Index building...'
+    shellIndex = ShellIndex(G)
+    shellIndex.build()
+    root=shellIndex.root
+    # #打印树
+    # print 'Index Tree:'
+    # displayTree(root,0)
+
+    queryVertex=[130,119,149,215]
+    queryAttr=['205','158','28']
+
+    print 'retrieveCSM...'
+    resTNodes,H,maxCoreness =retrieveCSM(queryVertex,shellIndex)
+    print 'csm:',H.nodes()
+    print 'maxCoreness:',maxCoreness
+
+    print 'querying...'
+    H1=greedyDec(H,10,queryVertex,queryAttr)
+    print 'final res:',H1.nodes()
+
 
 def runcsmGrD():
-    #################      TEST 1     ###############################
-    # graphFile='Data/toy-graph'
-    # nodeFile='Data/toy-node'
-    # G=dataReader(graphFile,nodeFile)
-    # print 'ok'
-    # shellIndex = ShellIndex(G)
-    # shellIndex.build()
-    # root=shellIndex.root
-    # #打印树
-    # # displayTree(root,0)
-    # queryVertexes=[1,3]
-    # resTNodes,H,maxCoreness =retrieveCSM(queryVertexes,shellIndex)
-    # print 'csm:',H.nodes()
-    # print 'maxCoreness:',maxCoreness
-    # ###假设没有指定查询属性，取查询节点属性的交集
-    # queryAttributes=['tree','algorithm']
-    # H1=greedyDec(H,3,queryVertexes,queryAttributes)
-    # print 'final res:',H1.nodes()
-
-    ####################   TEST 2   ##############################
-    # edgefile='Data/delicious_graph'
-    # labelfile='Data/delicious_nodelabel'
-    #
-    # print 'Reading graph...'
-    # G=dataReader3(edgefile,labelfile)
-    #
-    # print 'Index building...'
-    # shellIndex = ShellIndex(G)
-    # shellIndex.build()
-    # root=shellIndex.root
-    # # #打印树
-    # # print 'Index Tree:'
-    # # displayTree(root,0)
-    #
-    # queryVertex=[130,119,149,215]
-    # queryAttr=['205','158','28']
-    #
-    # print 'retrieveCSM...'
-    # resTNodes,H,maxCoreness =retrieveCSM(queryVertex,shellIndex)
-    # print 'csm:',H.nodes()
-    # print 'maxCoreness:',maxCoreness
-    #
-    # print 'querying...'
-    # H1=greedyDec(H,10,queryVertex,queryAttr)
-    # print 'final res:',H1.nodes()
-
-
     ###############################################################################
     ####      读query文件，并将结果输出（注意结果文件与query文件相对应）###########
     ###############################################################################
     path='L:/ACQData/'
-    dataset='citeseer'
+    dataset='texas'
     algo='grdec/'
     edgefile=path+'inputfile/'+dataset+'_graph'
     labelfile=path+'inputfile/'+dataset+'_nodelabel'
@@ -638,7 +657,6 @@ def runcsmGrD():
         wf.write(string+'\n')
         print '**************************************************************************'
     wf.close()
-
 
 def outPutcsm():
     path='L:/ACQData/'
@@ -778,10 +796,8 @@ def runcstGrd():
         print '**************************************************************************'
     wf.close()
 
-if __name__=="__main__":
 
-
-
+def testcsmStInc():
     ###############################################################################
     ####      读query文件，并将结果输出（注意结果文件与query文件相对应）###########
     ###############################################################################
@@ -792,7 +808,6 @@ if __name__=="__main__":
     labelfile=path+dataset+'_nodelabel'
     queryVertexes=[1,2,3] ##包含所有的查询节点
     queryAtts=['2','51'] ###包含所有的查询属性
-
 
     print 'Reading graph...'
     G=dataReader3(edgefile,labelfile)
@@ -809,8 +824,79 @@ if __name__=="__main__":
     qattr=queryAtts
     print 'retrieveCSM...'
     resTNodes,H,maxCoreness =retrieveCSM(qnode,shellIndex)
-    print 'csm:',H.nodes()
+    print 'csmNodes:',H.nodes()
+    print 'csmEdges:',H.edges()
     print 'maxCoreness:',maxCoreness
     Hi=csmSTTree(H,maxCoreness,qnode,qattr,0.5)  ####最后一个参数是结构和属性的权衡分数
     print 'final res:',Hi.nodes()
 
+def runcsmGrD2():
+    ###############################################################################
+    ####      读query文件，并将结果输出（注意结果文件与query文件相对应）###########
+    ###############################################################################
+    path='L:/ACQData/groundTruthData/'
+    data='cora'
+    dataset=data+'/'+data
+    algo='csmSTTree'
+    edgefile=path+dataset+'_graph'
+    labelfile=path+dataset+'_nodelabel'
+    queryfile=path+dataset+'_query_w2'
+    outfile='L:/ACQData/'+algo+'/'+data+'_query_w2_'+algo+'_res.txt'
+    queryVertexes=[] ##包含所有的查询节点
+    queryAtts=[] ###包含所有的查询属性
+    fq=open(queryfile,'r')
+    lineCount=0
+    for line in fq.readlines():
+        lineCount+=1
+        line=line.strip("\n") #把末尾换行符去掉
+        words=line.split('\t')
+
+        nodeStartid=words.index('node:')  ####查询节点开始的位置
+        attrsStartid=words.index('attr:') ####查询属性开始的位置
+
+        tmp=words[nodeStartid+1:attrsStartid]
+        if(len(tmp)==0):  #####可能会出现查询节点为空
+            break
+        nodeList=[]
+        for val in tmp:
+            if val:
+                nodeList.append(int(val))
+        queryVertexes.append(nodeList)
+
+        attrList=words[attrsStartid+1:] ###选择所以关键词
+        attrList[-1].strip('\n')  ##去不掉最后一个换行符。。
+        queryAtts.append(attrList)
+    fq.close()
+
+    print 'Reading graph...'
+    G=dataReader3(edgefile,labelfile)
+    print 'Index building...'
+    shellIndex = ShellIndex(G)
+    shellIndex.build()
+    root=shellIndex.root
+    # #打印树
+    # print 'Index Tree:'
+    # displayTree(root,0)
+    wf=open(outfile,'w')
+    for i in range(lineCount):
+        print '**************************************************************************'
+        print 'NO.'+str(i)+' querying...'
+        qnode=queryVertexes[i]
+        qattr=queryAtts[i]
+        print 'retrieveCSM...'
+        resTNodes,H,maxCoreness =retrieveCSM(qnode,shellIndex)
+        print 'csm:',H.nodes()
+        print 'maxCoreness:',maxCoreness
+        # Hi=greedyDec(H,maxCoreness,qnode,qattr)
+        Hi=csmSTTree(H,maxCoreness,qnode,qattr,0.5)
+        print 'final res:',Hi.nodes()
+        ####文件输出
+        string=''
+        for node in Hi.nodes():
+            string+=str(node)+' ' ####空格分割
+        wf.write(string+'\n')
+        print '**************************************************************************'
+    wf.close()
+
+if __name__=="__main__":
+    runcsmGrD2()
