@@ -186,7 +186,7 @@ def dataReader(adjlistFile,attrFile):
 
 
 def RunRandomSelectQuery():
-    dataName='citeseer'
+    dataName='wisconsin'
     edgefile='L:/ACQData/inputfile/'+dataName+'_graph'
     labelfile='L:/ACQData/inputfile/'+dataName+'_nodelabel'
     outputFile='L:/ACQData/'+dataName+'_Query_wall.txt';
@@ -203,7 +203,7 @@ def selectFromGroudTruthData():
     # edgeFile=open(path+dataName+' _graph','r')
     classFile=open(path+dataName+'_class','r')
     labelFile=open(path+dataName+'_nodelabel','r')
-    queryFile=open(path+dataName+'_query_w2','w')
+    queryFile=open(path+dataName+'_query_w2_1','w')
     wordNum=2 ###指定的筛选属性的个数
 
     '读社团分组'
@@ -274,5 +274,179 @@ def selectFromGroudTruthData():
             queryFile.write(string+'\n')
 
 
+def analyzeGroundTruthData():
+    '分析一下数据'
+    '从groud-truth data里面筛选查询节点，和查询属性'
+    path = 'L:/ACQData/groundTruthData/'
+    data = 'citeseer'
+    dataName = data + '/' + data
+    # edgeFile=open(path+dataName+' _graph','r')
+    classFile = open(path + dataName + '_class', 'r')
+    labelFile = open(path + dataName + '_nodelabel', 'r')
+    analyzedFile = open(path + dataName + '_analyzeKeyWord', 'w')
+    wordNum = 10  ###指定的筛选属性的个数
+
+    '读社团分组'
+    communityGroup = defaultdict(list)  ##社团分组
+    for line in classFile.readlines():
+        line = line.strip()
+        words = line.split()
+        communityGroup[words[1]].append(int(words[0]))
+    classFile.close()
+    '读节点标签'
+    labelDict = {}
+    for line in labelFile.readlines():
+        line = line.strip()
+        words = line.split()
+        labelDict[int(words[0])] = words[1:]  ##属性还是str格式
+    labelFile.close()
+    '统计社团中属性出现频率'
+    comWordFrequents = {} ##{社团：{关键词：频率}}
+    comWordFrequents = comWordFrequents.fromkeys(communityGroup.keys(), {})  ##初始化
+    comWordNodeGroup = {} ##{社团：{关键词：包含的社团中的节点集}}
+    comWordNodeGroup = comWordNodeGroup.fromkeys(communityGroup.keys(), {})
+
+    for className, nodes in communityGroup.items():
+        wordFre = {}
+        wordNode = defaultdict(list)
+        ###对于每个社团，统计一下词频
+        for node in nodes:
+            for label in labelDict[node]:
+                if wordFre.has_key(label):
+                    wordFre[label] += 1
+                else:
+                    wordFre[label] = 1
+                wordNode[label].append(node)
+        ####
+        comWordFrequents[className] = wordFre
+        comWordNodeGroup[className] = wordNode
+
+    '输出文件'
+    for className in comWordFrequents.keys():
+        attrFreDict = comWordFrequents[className]
+        attrNodeDict = comWordNodeGroup[className]
+        '选择前wordnum个属性'
+        selectAttrs = []
+        tmp = sorted(attrFreDict.items(), key=lambda d: d[1], reverse=True)[0:wordNum]  ##选择前wordNum个
+        for tuple in tmp:
+            selectAttrs.append(tuple[0])  ##只选择属性
+        '输出分析结果'
+        outstr='class: '+className+'\n'
+        printStr='class: '+className+'\tkeywords:'
+        for a in selectAttrs:
+            outstr+='keyword: '+str(a)+'\tFrequent: '+str(attrFreDict[a])+'\tNodes: '
+            printStr+=str(a)+' '
+        print printStr
+            # for n in attrNodeDict[a]:
+            #     outstr+=str(n)+', '
+            # outstr+='\n'
+        # analyzedFile.write(outstr+'\n')
+    # analyzedFile.close()
+
+
+def selectFromGroudTruthDataFrom2Nei():
+    '从groud-truth data里面筛选查询节点，和查询属性'
+    path='L:/ACQData/groundTruthData/'
+    data='citeseer'
+    dataName=data+'/'+data
+    edgePath=path+dataName+'_graph'
+    classFile=open(path+dataName+'_class','r')
+    labelFile=open(path+dataName+'_nodelabel','r')
+    queryTimes = 1000
+    queryFile=open(path+dataName+'_query_2Nei_w3_'+str(queryTimes),'w')
+
+    wordNum=3 ###指定的筛选属性的个数
+
+    '读图'
+    G=nx.read_adjlist(edgePath,nodetype=int)
+    ##获取度
+    degreeDict=nx.degree(G)
+    '读社团分组'
+    communityGroup = defaultdict(list)  ##社团分组
+    for line in classFile.readlines():
+        line=line.strip()
+        words=line.split()
+        communityGroup[words[1]].append(int(words[0]))
+    classFile.close()
+    '读节点标签'
+    labelDict={}
+    for line in labelFile.readlines():
+        line=line.strip()
+        words=line.split()
+        labelDict[int(words[0])]=words[1:] ##属性还是str格式
+    labelFile.close()
+    '统计社团中属性出现频率'
+    comWordFrequents={}
+    comWordFrequents=comWordFrequents.fromkeys(communityGroup.keys(),{})##初始化
+    comWordNodeGroup={}
+    comWordNodeGroup=comWordNodeGroup.fromkeys(communityGroup.keys(),{})
+
+    for className,nodes in communityGroup.items():
+        wordFre={}
+        wordNode=defaultdict(list)
+        ###对于每个社团，统计一下词频
+        for node in nodes:
+            for label in labelDict[node]:
+                if wordFre.has_key(label):
+                    wordFre[label]+=1
+                else:
+                    wordFre[label]=1
+                wordNode[label].append(node)
+        ####
+        comWordFrequents[className]=wordFre
+        comWordNodeGroup[className]=wordNode
+
+
+    '在同一个社团中,出现频率最大的k个关键词的查询组，随机选择[1,2,4,8,16]个查询节点'
+    for className,wordNodeGroup in comWordNodeGroup.items():
+        attrFreDict=comWordFrequents[className]
+        attrNodeDict=comWordNodeGroup[className] ###这个社团里面的
+        '选择前两个属性'
+        selectAttrs=[]
+        tmp=sorted(attrFreDict.items(),key=lambda d:d[1],reverse=True)[0:wordNum] ##选择前wordNum个
+        for tuple in tmp:
+            selectAttrs.append(tuple[0]) ##只选择属性
+        '在包含这些属性的节点里面选节点'
+        nodeSet=set()
+        for label in selectAttrs:
+            for node in attrNodeDict[label]:
+                nodeSet.add(node)
+        '选择社团里面度最大的节点以及他的邻居'
+        maxDNode=nodeSet.pop()
+        maxD=degreeDict[maxDNode]
+        for node in nodeSet:
+            if degreeDict[node]>maxD:
+                maxDNode=node
+                maxD=degreeDict[node]
+        '随机选度最大的节点的邻居,一个社团生成十次查询文件'
+        for i in range(queryTimes):
+            count=random.randint(1,maxD-1)
+            '在度最大的节点的2度邻居里面选'
+            oneHopNeis=nx.neighbors(G,maxDNode)
+            twoHopneis=[]
+            for n in oneHopNeis:
+                twoHopneis.extend(nx.neighbors(G,n))     ##2度邻居
+            '节点筛选范围是nodeList'
+            nodeList=[]
+            nodeList.extend(oneHopNeis)
+            nodeList.extend(twoHopneis)
+            selectNodeSet = set()  ##最终入选的节点集
+            while len(selectNodeSet) < count and len(nodeList) >= count:
+                randIndex = random.randint(0, len(nodeList) - 1)
+                selectNodeSet.add(nodeList[randIndex])
+            '选好节点，输出文件'
+            string = 'qn:' + '\t' + str(count) + '\tnode:'
+            for n in selectNodeSet:
+                string += '\t' + str(n)
+            string += '\t' + 'attr:'
+            for a in selectAttrs:
+                string += '\t' + a
+            queryFile.write(string + '\n')
+
+
+
 if __name__=="__main__":
-    selectFromGroudTruthData()
+    # selectFromGroudTruthData()
+    # RunRandomSelectQuery()
+    # analyzeGroundTruthData()
+    selectFromGroudTruthDataFrom2Nei()
