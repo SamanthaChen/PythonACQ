@@ -7,7 +7,7 @@
 """
 from collections import defaultdict
 if __name__=='__main__':
-    ego=0
+    ego=3980
     path='L:/ACQData/groundTruthData/facebook/facebook/'
     ####读取的文件
     edgesFile=open(path+str(ego)+'.edges','r')
@@ -17,6 +17,7 @@ if __name__=='__main__':
     ######写入的文件
     graphFile=open(path+'facebook_ego'+str(ego)+'_graph','w')
     nodelabelFile=open(path+'facebook_ego'+str(ego)+'_nodelabel','w')
+    nodeClassFile=open(path+'facebook_ego'+str(ego)+'_class','w')
 
     '读取除了ego外的所有的节点，和节点的标签，生成属性链表'
     nodes=set()
@@ -47,29 +48,48 @@ if __name__=='__main__':
         words=line.split()
         u=int(words[0])
         v=int(words[1])
-        if adjList.has_key(u):
-            adjList[u].append(v)
+        adjList[u].append(v)
     edgesFile.close()
     '创造ego到所有其他节点的边'
+    ###其他节点到ego,添加一条边
+    for key in adjList.keys():
+        adjList[key].append(ego)
+    ###ego到其他节点
     tmp=nodeLabelDict.keys()
     tmp.remove(ego)
     adjList[ego]=tmp
+
+    '读circle文件'
+    nodeClassDict={} ##节点class字典
+    for line in circlesFile.readlines():
+        line=line.strip()
+        words=line.split()
+        className=words[0]
+        nodeList=[int(val) for val in words[1:]]
+        for n in nodeList:
+            nodeClassDict[n]=className
+    circlesFile.close()
     '写入边文件文件'
     for node,neighbors in adjList.items():
         string=''
-        string+=node
+        string+=str(node)
         for nei in neighbors:
-            string+=' '+nei
+            string+=' '+str(nei)
         graphFile.write(string+'\n')
     graphFile.close()
     '写入节点属性文件'
     for node,attrs in nodeLabelDict.items():
         string=''
-        string+=node
+        string+=str(node)
         for a in attrs:
-            string+=' '+a
-        nodelabelFile.write(string+'/n')
+            string+=' '+str(a)
+        nodelabelFile.write(string+'\n')
     nodelabelFile.close()
+    '写节点的class文件(注意这里没有写ego属于哪个社团，ego应该属于所有社团)'
+    for node,value in  nodeClassDict.items():
+        string=str(node)+'\t'+value
+        nodeClassFile.write(string+'\n')
+    nodeClassFile.close()
 
 
 

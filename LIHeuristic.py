@@ -20,7 +20,8 @@ class LIHeuristic:
         self.connectedScore={} ###这个分数没有归一化
         self.attributeScore={} ###这个分数没有归一化
         self.totalScore={}     ###这个分数归一化了
-        self.VwList={}
+        self.VwList={} ###结果集中属性出现频率字典
+        self.queryAttrGroup=defaultdict(list) ##候选集中属性分组
         ####按连接分数分的小组
         # self.groupOfNodes=[None]*(nx.number_of_nodes(G))
         ####节点到组号的映射
@@ -61,9 +62,10 @@ class LIHeuristic:
             #     maxcScore=self.connectedScore[n]
             #####计算属性得分
             if self.G.node[n].has_key('attr') and self.G.node[n]['attr']!=None:
-                for a in self.G.node[n]['attr']:
-                    if a in queryAttrs:
+                for a in queryAttrs: ###小的筛能快一下吧
+                    if a in self.G.node[n]['attr']:
                         self.attributeScore[n]+=2*self.VwList[a]-1
+                        self.queryAttrGroup[a].append(n) ###候选节点的属性分组
             #####更新最大属性分数
             if self.attributeScore[n]>self.maxaScore:
                 self.maxaScore=self.attributeScore[n]
@@ -74,11 +76,11 @@ class LIHeuristic:
 
 
 
-    def addNode(self,node,linkG):
-        '往graph添加节点node后，更新分数'
+    def addNode(self,node,solutionNodes):
+        '添加候选节点node，更新分数'
         neighbors=self.G.neighbors(node)
         numberofNei=0
-        nodes=linkG.nodes()
+        nodes=solutionNodes
         ####遍历小的比较省时间
         if(len(nodes)<len(neighbors)):
             for n in nodes:
@@ -89,20 +91,22 @@ class LIHeuristic:
                 if n in nodes:
                     numberofNei+=1
         '1.更新分组,更新连通分数'
-        self.groupOfNodes[numberofNei].append(node)
+        # self.groupOfNodes[numberofNei].append(node)
         self.nodeGroup[node]=numberofNei
-        self.connectedScore=numberofNei
+        self.connectedScore[node]=numberofNei
         if numberofNei>self.maxcScore:
             self.maxcScore=numberofNei
-        '2.不更新VkList，计算自己的属性得分'
+        '2.不更新VkList（因为还没加到结果集中），计算自己的属性得分'
         aScore=0.0
         for qa in self.queryAttrs:
             if self.G.node[node].has_key('attr') and self.G.node[node]['attr']!=None:
-                for na in self.G.node[node]['attr']:
-                    if na==qa:
-                        aScore+=2*self.VwList[qa]-1
+                if qa in self.G.node[node]['attr']:
+                    aScore+=2*self.VwList[qa]-1
+                    self.queryAttrGroup[qa].append(node)  ###加到候选属性集分组
         if aScore>self.maxaScore:
             self.maxaScore=aScore
+        self.attributeScore[node]=aScore # '计算自己属性得分'
+
         '3.更新总分（因为每一次最大分数都会变）(删除时候不更新，反正保持最大就行)'
         for n in self.nodeGroup.keys():
             tmp=self.alpha * (float(self.connectedScore[n])/float(self.maxcScore))+(1-self.alpha) * (float(self.attributeScore[n])/float(self.maxaScore))
@@ -123,6 +127,11 @@ class LIHeuristic:
             del self.connectedScore[node]
             del self.attributeScore[node]
             del self.totalScore[node]
+            ####从候选属性集分组中删除
+            for qa in self.queryAttrs:
+                if self.G.node[node].has_key('attr') and self.G.node[node]['attr'] != None:
+                    if qa in self.G.node[node]['attr']:
+                        self.queryAttrGroup[qa].remove(node)
             '2.node加入solution之后，需要更新node邻居的连接数'
             neighbors=self.G.neighbors(node)
             for nei in neighbors:
@@ -131,27 +140,22 @@ class LIHeuristic:
                     # self.groupOfNodes[oldGroup].remove(nei)
                     newGroup=oldGroup+1
                     self.nodeGroup[nei]=newGroup
+                    self.connectedScore[nei]=newGroup  ##连接分数
                     if newGroup>self.maxcScore:
                         self.maxcScore=newGroup
                     # self.groupOfNodes[newGroup].append(nei)
-            '3.node加入solution后，VwList需要更新'
+            '3.node加入solution后，VwList需要更新,受影响属性分组下的节点的属性分数也要更新'
             '更新VkList，更新最大属性分数'
             for qa in self.queryAttrs:
                 if self.G.node[node].has_key('attr') and self.G.node[node]['attr']!=None:
-                    for na in self.G.node[node]['attr']:
-                        if na==qa:
-                            self.VwList[qa]+=1  ###node与查询节点重合的属性出现频率需要+1
-            '4.更新属性得分'
-            curNodes=self.nodeGroup.keys()
-            for n in curNodes:
-                #####计算属性得分
-                if self.G.node[n].has_key('attr') and self.G.node[n]['attr']!=None:
-                    for a in self.G.node[n]['attr']:
-                        if a in self.queryAttrs:
-                            self.attributeScore[n]+=2*self.VwList[a]-1
-                #####更新最大属性分数
-                if self.attributeScore[n]>self.maxaScore:
-                    self.maxaScore=self.attributeScore[n]
+                    if qa in self.G.node[node]['attr']: ##qa是受影响的查询属性
+                            self.VwList[qa]+=1  ###node与查询节点重合的属性出现频率需要
+                            #####node于qa交集的属性下的分组的属性分数需要更新，其他节点不受影响
+                            for nn in self.queryAttrGroup[qa]:
+                                self.attributeScore[nn]+=2 ####属性出现频率加1，分数加2
+                                #####更新最大属性分数
+                                if self.attributeScore[nn] > self.maxaScore:
+                                    self.maxaScore = self.attributeScore[nn]
             '5.更新总分（因为每一次最大分数都会变）(删除时候不更新，反正保持最大就行)'
             for n in self.nodeGroup.keys():
                 tmp=self.alpha * (float(self.connectedScore[n])/float(self.maxcScore))+(1-self.alpha) * (float(self.attributeScore[n])/float(self.maxaScore))

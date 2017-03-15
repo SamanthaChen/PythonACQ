@@ -42,7 +42,6 @@ def dataReader(resFile,queryFile,labelFile):
     lq.close()
 
 
-
 def multiCMF(resFile,queryFile,labelFile):
     '一下子计算多个社团的CMF.读文件，注意结果文件与查询文件的每一行都是互相对应的'
     '1.读取查询属性'
@@ -51,7 +50,7 @@ def multiCMF(resFile,queryFile,labelFile):
     for line in qaf.readlines():
         line=line.strip()
         words=line.split()
-        attrsStartid=words.index('attrs:') ####查询属性开始的位置
+        attrsStartid=words.index('attr:') ####查询属性开始的位置
         attrList=words[attrsStartid+1:]
         queryAttrs.append(attrList)
     qaf.close()
@@ -65,7 +64,7 @@ def multiCMF(resFile,queryFile,labelFile):
         communities.append(words)
         size.append(len(words))
     cf.close()
-    print 'size:',size
+    # print 'size:',size
     '3.读取节点的标签'
     nodeAttrDict={}
     lq=open(labelFile,'r')
@@ -87,7 +86,7 @@ def multiCMF(resFile,queryFile,labelFile):
     CMFs=[0]*N
     CPJs=[0]*N
     for i in range(N):
-        print '第',str(i),'次计算CMF，CPJ'
+        # print '第',str(i),'次计算CMF，CPJ'
         com=communities[i]
 
         aList=queryAttrs[i] ##一排属性
@@ -107,12 +106,13 @@ def multiCMF(resFile,queryFile,labelFile):
 
         '6:计算一个CMF'
         cmf=0.0
-        for value in wordFreq.values():
-            cmf+=float(value)/float(len(com))
+        if len(com)>0:
+            for value in wordFreq.values():
+                cmf+=float(value)/float(len(com))
         if len(aList)!=0:
             cmf=cmf/len(aList) ##防止除0
         CMFs[i]=cmf
-        print 'cmf:',cmf
+        # print 'cmf:',cmf
         '7.计算jaccard，若社团size>1000,社团中随机抽取1000个节点.否则直接两两进行计算'
         '7.1:社团抽样'
         comsize=len(com)
@@ -149,16 +149,22 @@ def multiCMF(resFile,queryFile,labelFile):
                         tmpValue=share/len(attrSet)
                     '加入最后结果'
                     jaccardSim+=tmpValue
-        print 'jaccard:',jaccardSim,' count:',count
-        jaccardSim=jaccardSim/count
-        print 'jaccardSim:',jaccardSim
+        # print 'jaccard:',jaccardSim,' count:',count
+        if count>0:
+            jaccardSim=jaccardSim/count
+        # print 'jaccardSim:',jaccardSim
         CPJs[i]=jaccardSim
+    # print 'CMF:', CMFs
+    # print 'CMF average:', sum(CMFs) / float(len(CMFs))
+    # print 'CMF max:', max(CMFs)
+    # print 'CPJ:', CPJs
+    # print 'CPJ average', sum(CPJs) / float(len(CPJs))
+    # print  'CPJ max:', max(CPJs)
 
-    print 'CMF:',CMFs
-    print 'CPJ:',CPJs
+    return CMFs,CPJs
 
 def LDenseValuation(resFile,queryFile,labelFile):
-    '评估LDense'
+    '评估LDense的CMF，注意一个查询条件会得出多个相关社团'
     '1:把社团读进来'
     communityList=[]
     resf=open(resFile,'r')
@@ -205,7 +211,7 @@ def LDenseValuation(resFile,queryFile,labelFile):
     CMFs=[0]*N
     CPJs=[0]*N
     for i in range(N):
-        print '第',str(i),'次计算CMF，CPJ'
+        # print '第',str(i),'次计算CMF，CPJ'
         comIDList=relatedComs[i]
         aList=queryAttrs[i] ##一排查询属性
         wordFreq={}
@@ -232,7 +238,7 @@ def LDenseValuation(resFile,queryFile,labelFile):
                 cmf=cmf/len(aList)/len(comIDList) ##防止除0
 
         CMFs[i]=cmf
-        print 'cmf:',cmf
+        # print 'cmf:',cmf
 
         '7.计算jaccard，若社团size>1000,社团中随机抽取1000个节点.否则直接两两进行计算'
         jaccardSim=0.0
@@ -279,11 +285,17 @@ def LDenseValuation(resFile,queryFile,labelFile):
         # print 'jaccardSim:',jaccardSim
         if len(comIDList)!=0:
             jaccardSim=jaccardSim/len(comIDList)
-        print 'jaccardSim:',jaccardSim
+        # print 'jaccardSim:',jaccardSim
         CPJs[i]=jaccardSim
 
-    print 'CMF:',CMFs
-    print 'CPJ:',CPJs
+    # print 'CMF:',CMFs
+    # print 'CMF average:',sum(CMFs)/float(len(CMFs))
+    # print 'CMF max:',max(CMFs)
+    # print 'CPJ:',CPJs
+    # print 'CPJ average',sum(CPJs)/float(len(CPJs))
+    # print  'CPJ max:',max(CPJs)
+
+    return CMFs,CPJs
 
 
 def computeDensity():
@@ -313,9 +325,10 @@ def computeDensity():
 
 
 
+
 def run():
     path='L:/ACQData/'
-    dataset='dilicious'
+    dataset='texas'
     algo='grdec/'
     queryFile=path+dataset+'_Query_wall.txt'
     labelFile=path+'inputfile/'+dataset+'_nodelabel'
@@ -332,5 +345,74 @@ def runLDense():
     resFile='L:/ACQData/LDense/delicious/delicious_100'
     LDenseValuation(resFile,queryFile,labelFile)
 
+def runGreedyDecV2csm():
+    path='L:/ACQData/'
+    # dataset='wisconsin'
+    algo='greedyDecV2/'
+
+    datasetList=['citeseer']
+    for dataset in datasetList:
+        queryFile=path+'groundTruthData/'+dataset+'/'+dataset+'_query_2Nei_w3_100' ####查询文件
+        labelFile=path+'groundTruthData/'+dataset+'/'+dataset+'_nodelabel'
+
+        rescmfavg = []
+        rescmfmax = []
+        rescpjavg = []
+        rescpjmax = []
+
+        resFilecst = path + algo + dataset + '_query_2Nei_w3_100_csm_res.txt'  ##GreedyDec的文件
+        cmfList, cpjList = multiCMF(resFilecst, queryFile, labelFile)
+
+        tmp1 = sum(cmfList) / float(len(cmfList))
+        rescmfavg.append(tmp1)
+        rescmfmax.append(max(cmfList))
+
+        tmp2 = sum(cpjList) / float(len(cpjList))
+        rescpjavg.append(tmp2)
+        rescpjmax.append(max(cpjList))
+
+        print "****************************************************"
+        print 'data:',dataset
+        print 'cmf avg:', rescmfavg
+        print 'cmf max:', rescmfmax
+        print 'cpj avg:', rescpjavg
+        print 'cpj max:', rescpjmax
+
+
+def runGreedyDecV2CST():
+    path='L:/ACQData/'
+    dataset='wisconsin'
+    algo='greedyDecV2/'
+    queryFile=path+'groundTruthData/'+dataset+'/'+dataset+'_query_2Nei_w3_100' ####查询文件
+    labelFile=path+'groundTruthData/'+dataset+'/'+dataset+'_nodelabel'
+    # resFile=path+'cocktail/'+dataset+'_Query_wall_onlyNode_cocktail_res.txt'   ###cock的文件
+    # resFilecsm=path+algo+dataset+'_query_2Nei_w3_100_csm_res.txt' ##GreedyDec的文件
+    # resFilecst=path+algo+dataset+'_query_2Nei_w3_100_k1_res.txt' ##GreedyDec的文件
+    rescmfavg=[]
+    rescmfmax=[]
+    rescpjavg=[]
+    rescpjmax=[]
+    for k in range(1,5):
+        resFilecst=path+algo+dataset+'_query_2Nei_w3_100_k'+str(k)+'_res.txt' ##GreedyDec的文件
+        cmfList, cpjList = multiCMF(resFilecst, queryFile, labelFile)
+
+        tmp1=sum(cmfList)/float(len(cmfList))
+        rescmfavg.append(tmp1)
+        rescmfmax.append(max(cmfList))
+
+        tmp2=sum(cpjList)/float(len(cpjList))
+        rescpjavg.append(tmp2)
+        rescpjmax.append(max(cpjList))
+    print 'cmf avg:',rescpjavg
+    print 'cmf max:',rescmfmax
+    print 'cpj avg:',rescpjavg
+    print 'cmf max:',rescmfmax
+
+
+
+
+
+
 if __name__=='__main__':
-    computeDensity()
+    # computeDensity()
+    runGreedyDecV2csm()

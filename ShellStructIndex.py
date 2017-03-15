@@ -36,21 +36,23 @@ class ShellStructIndex:
         '采用并查集自底向上建立TreeIndex'
         N=nx.number_of_nodes(ShellStructIndex.G) #图的节点个数
         '步骤1：计算k-core，按coreness分组'
+        ##k-core分解
         ShellStructIndex.coreDict=nx.core_number(ShellStructIndex.G)
         #将节点按照core number进行分组
         Vk=defaultdict(list) #字典的value是列表
-        for key,value in ShellStructIndex.coreDict.iteritems():
-            Vk[value].append(key)
+        for key,value in ShellStructIndex.coreDict.iteritems():###（2017.3.5：发现不在图里面的节点，怀疑是nx.core_number函数# ）
+           Vk[value].append(key)
         #将Vk按照coreness(key)进行排序，降序
         # sortedVk=sorted(Vk.items(),key=lambda d:d[0],reverse=True)
         '步骤2：初始化并查集和一些需要的数据结构'
         restNodeList=[] #储存没有父母的节点，最后直接连接到core为0的根节点下方作为孩子
-        ShellStructIndex.vertexTNodelist=[None]*(N+1) #图节点到TNode的映射的列表
+        ShellStructIndex.vertexTNodelist=[None]*(N+2) #图节点到TNode的映射的列表
+        # print str(N+1)
         core0List=[] #coreness=0的节点，作为这棵树的根
         #############初始化并查集#############
         unodeArr =[] #存储的是并查集的节点(id->UNode)
         uf = UnionFind() #包含所有并查集方法的类
-        for i in range(N):
+        for i in range(N+2):#加1是因为可能从1才开始编号
             unode=UNode(i)
             uf.makeSet(unode)
             unodeArr.append(unode)
@@ -92,6 +94,7 @@ class ShellStructIndex:
                 for parent,nodeList in ufGNodeMap.iteritems():
                     childList=ufTNodeMap[parent]
                     tnodeCounter=tnodeCounter+1 #
+                    # print 'tnodeCounter:',tnodeCounter
                     tnode=TNode(curcore,tnodeCounter) #新建一个树节点(给定coreness和树节点编号)（re：2017.2.26）
                     tnode.nodeList=nodeList
                     if childList:#如果孩子不为空，给树节点添加孩子节点
@@ -102,6 +105,7 @@ class ShellStructIndex:
                     restNodeList.append(tnode) #假设这个节点目前没有父母咯
                     #更新(id->TNode)
                     for nodeId in nodeList:
+                        # print nodeId
                         ShellStructIndex.vertexTNodelist[nodeId]=tnode
                     #更新没有父母的树节点列表
                     for subTNode in tnode.childList:
@@ -123,6 +127,7 @@ class ShellStructIndex:
 
         '步骤4：建立root节点'
         tnodeCounter=tnodeCounter+1#(re:2017.2.26)
+        # print 'tnodeCounter:', tnodeCounter
         ShellStructIndex.root = TNode(core=0,data=tnodeCounter)
         ShellStructIndex.root.nodeList=core0List
         ShellStructIndex.root.childList=restNodeList  #这里需要深拷贝（copy.deepcopy(restNodeList)）吗？
@@ -133,7 +138,7 @@ class ShellStructIndex:
         for v in core0List:
             ShellStructIndex.vertexTNodelist[v]=ShellStructIndex.root
         '步骤5：在树节点上获得nodeList的属性的倒排'
-        self.attachKw(ShellStructIndex.root)
+        # self.attachKw(ShellStructIndex.root)
 
 
     def attachKw(self,root):
@@ -159,7 +164,7 @@ class ShellStructIndex:
             preStr=""
             for i in range(level):
                 preStr=preStr+" "
-            string=string+preStr+"--(core:"+str(root.core)+") {"
+            string=string+preStr+"--["+str(root.data)+"](core:"+str(root.core)+") {"
             #root包含的图节点
             for node in root.nodeList:
                 string=string+str(node)+", "
@@ -170,3 +175,29 @@ class ShellStructIndex:
             if root.childList:
                 for chid in root.childList:
                    self. displayTree(chid,level+1)
+
+
+def dataReader(graphFile,nodeFile):
+    '根据图文件（邻接链表格式）和节点文件（节点-别名-属性）读取图'
+    G=nx.read_adjlist(graphFile,nodetype=int) #从邻接表读取图数据
+    #读取节点的属性文件
+    f=open(nodeFile)
+    for line in f.readlines():
+        line=line.strip('\n')
+        words = line.split('\t') ###name和属性是ab分割，但是属性是空格分割
+        attrs=words[2].split(' ')
+        G.node[int(words[0])]["name"]=words[1] #读取节点的name
+        G.node[int(words[0])]["attr"]=attrs #读取节点的属性
+    return G
+
+if __name__=='__main__':
+    '测试类'
+    graphFile = 'Data/toy2-graph'
+    nodeFile = 'Data/toy2-node'
+    G = dataReader(graphFile, nodeFile)
+    # print 'ok'
+    shellIndex = ShellStructIndex(G)
+    shellIndex.build()
+    root = shellIndex.root
+    # 打印树
+    shellIndex.displayTree(root,0)

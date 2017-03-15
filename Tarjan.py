@@ -15,7 +15,6 @@ class Query:
         self.p2=p2
         self.lca=None
 
-
 def makeSet(p):
     p.parent=p
 

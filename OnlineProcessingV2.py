@@ -37,7 +37,7 @@ def retrieveCSMV2(queryVertexes,index):
             candiatelca.add(vertexTNodeList[qv]) ###存查询节点属于的树节点
             querys.remove(qv)
     '3:从k-1层开始慢慢往上找'
-    while (len(querys)!=0   or  len(candiatelca)!=1):
+    while (len(querys)!=0   or  len(candiatelca)!=1) and k>=0:
         ctmp=set()
         for tnode in candiatelca:##将k层候选节点的父母加进来(core大于等于k-1的树节点)
             ctmp.add(tnode.parent)
@@ -170,9 +170,10 @@ def greedyDecV2(H,requireK,queryVertexes,queryAttributes):
         for v in deletedVtmp:
             ###统计受影响的属性
             nattr = H.node[v]['attr']
-            tmp = [val for val in nattr if val in queryAttributes]
-            for w in tmp:
-                VwList[w] = VwList[w] - 1
+            if nattr!=None:
+                tmp = [val for val in nattr if val in queryAttributes]
+                for w in tmp:
+                    VwList[w] = VwList[w] - 1
         print 'VwList:', VwList,'\tlen(Hi):',str(len(Hi))
         ###更新图属性得分
         scoretmp = sum([float(val * val) / float(len(Hi)) for val in VwList.itervalues()])
@@ -260,6 +261,72 @@ def isConnectedinG(nodes,H):
                 return flag
     return flag
 
+
+def greedyInc(H,requireK,queryVertexs,queryAttrs,alpha):
+    '以CSM的结果（即输入的H）为候选集，先找一颗斯坦纳树保证连接，再局部扩张'
+    '1.从候选图中找斯坦纳树'
+    stG=buildSteinerTree(queryVertexs,H)
+    N=nx.number_of_nodes(stG) ##当前树的节点大小
+    solution=stG.nodes() ##当前解
+    '2.局部搜索，同时计算子图得分'
+    ####下面这两个先测试一下，后面看情况调整
+    graphAttSocre=[]
+    graphAttEntropy=[] ##用熵做子图属性分数
+    graphAttEntropy2=[]
+    graphMinDegree=[]
+    graphMinDegree.append(min(stG.degree().items(),key=lambda x:x[1])[1]) ##取最小度
+    selectedNodes=[]
+
+    ###初始化连接类
+    heuristic=LIHeuristic(H,stG,queryAttrs,alpha) ##初始化已经把srG的一度邻居的链接分数计算了
+    graphAttSocre.append(sum([val*val/float(N) for val in heuristic.VwList.values()]))
+    graphAttEntropy.append(sum([ entropy( val/float(N) ) for val in heuristic.VwList.values()]))
+    graphAttEntropy2.append(sum([  (val/float(N))*entropy(val / float(N)) for val in heuristic.VwList.values()]))
+    # print 'connected：', heuristic.connectedScore
+    # print 'attribute:', heuristic.attributeScore
+    # print 'total:', heuristic.totalScore
+    curNode=heuristic.getBestNode()##取出得分最高的
+    selectedNodes.append(curNode)
+    # print 'curNode:',str(curNode)
+
+
+    while curNode!=-1: ####扩张到没有候选节点或者到达最大coreness停止
+        ###加入结果集合
+        solution.append(curNode) ##最终结果集合包含的节点
+        ###更新子图属性得分
+        subgraph=H.subgraph(solution)
+        N=nx.number_of_nodes(subgraph)
+        graphAttSocre.append(sum([val*val / float(N) for val in heuristic.VwList.values()]))
+        graphAttEntropy.append(sum([entropy(val / float(N)) for val in heuristic.VwList.values()]))
+        graphAttEntropy2.append(sum([(val / float(N))*entropy(val / float(N)) for val in heuristic.VwList.values()]))
+        ###更新最小度（后面记得删掉，太耗时间）
+        graphMinDegree.append(min(subgraph.degree().items(),key=lambda x:x[1])[1]) ##取最小度
+        if graphMinDegree[-1]==requireK:  ###到达最大度可以跳出
+            break
+        ####将当前节点的未访问邻居加入到queue
+        for nei in H.neighbors(curNode):
+            if (nei not in solution) and (nei not in heuristic.nodeGroup.keys()):
+                if H.degree(nei)>requireK:
+                    heuristic.addNode(nei,solution)
+
+        # print 'connected：', heuristic.connectedScore
+        # print 'attribute:', heuristic.attributeScore
+        # print 'total:', heuristic.totalScore
+        curNode=heuristic.getBestNode()
+        selectedNodes.append(curNode)
+        # print 'curNode:',str(curNode)
+
+    print 'graphMinDegree:',graphMinDegree
+    print 'graphAttSocre:',graphAttSocre
+    print 'graphAttEntropy:',graphAttEntropy
+    print 'graphAttEntropy2:', graphAttEntropy2
+    print 'selectedNodes:',selectedNodes
+    subgraph=H.subgraph(H)
+    return subgraph
+
+def entropy(p):
+    '熵的计算'
+    return -p*log(p,2)
 
 def dataReader(graphFile,nodeFile):
     '根据图文件（邻接链表格式）和节点文件（节点-别名-属性）读取图'

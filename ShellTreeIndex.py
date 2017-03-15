@@ -20,8 +20,8 @@ def dataReader(graphFile,nodeFile):
     f=open(nodeFile)
     for line in f.readlines():
         words = line.split()
-        G.node[int(words[0])]["name"]=words[1] #读取节点的name
-        G.node[int(words[0])]["attr"]=words[2:] #读取节点的属性
+        G.node[int(words[0])]['name']=words[1] #读取节点的name
+        G.node[int(words[0])]['attr']=words[2:] #读取节点的属性
     return G
 
 def build(G):
@@ -84,13 +84,13 @@ def build(G):
                 tnode=TNode(curcore) #新建一个树节点
                 tnode.nodeList=nodeList
                 if childList:#如果孩子不为空，给树节点添加孩子节点
-                    tnode.chidList=childList #这里用不用深拷贝？
+                    tnode.childList=childList #这里用不用深拷贝？
                 restNodeList.append(tnode) #假设这个节点目前没有父母咯
                 #更新(id->TNode)
                 for nodeId in nodeList:
                     vertexTNodelist[nodeId]=tnode
                 #更新没有父母的树节点列表
-                for subTNode in tnode.chidList:
+                for subTNode in tnode.childList:
                     restNodeList.remove(subTNode)
             '步骤3.4： 更新外面的并查集'
             for id in vkList:
@@ -110,10 +110,10 @@ def build(G):
     '步骤4：建立root节点'
     root = TNode(0)
     root.nodeList=core0List
-    root.chidList=copy.deepcopy(restNodeList)
+    root.childList=copy.deepcopy(restNodeList)
     '步骤5：在树节点上获得nodeList的属性的倒排'
     attachKw(root,G)
-    return root,vertexTNodelist
+    return root,vertexTNodelist,coreDict
 
 def attachKw(root,G):
     'BFS遍历树的所有节点并生成关键词倒排'
@@ -122,11 +122,11 @@ def attachKw(root,G):
     nodeList=root.nodeList
     if nodeList:
         for id in nodeList:
-            for attr in  G[id]['Attr']:
+            for attr in  G.node[id]['attr']:
                 kwMap[attr].append(id)
     root.kwMap=copy.deepcopy(kwMap)
     '步骤2：迭代生成孩子节点的倒排属性'
-    for chidTNode in root.chidList:
+    for chidTNode in root.childList:
         attachKw(chidTNode,G)
 
 
@@ -146,9 +146,25 @@ def displayTree(root,level):
         print string
 
         #打印孩子节点
-        if root.chidList:
-            for chid in root.chidList:
+        if root.childList:
+            for chid in root.childList:
                 displayTree(chid,level+1)
+
+
+
+def retrieveCSM(queryVertexes,root,vertexTNodeList,coreDict):
+    '自底向上，一层层往上找，最终的查询节点会汇聚到一个最低的公共祖先'
+    '步骤1：计算查询节点集合中最大的coreness'
+    maxQCore = 0
+    queryTNodeSet=set() #集合类型，包含查询节点所在的树集合
+    for query in queryVertexes:
+        if coreDict[query]>maxQCore:
+            maxQCore=coreDict[query]
+        queryTNodeSet.add(vertexTNodeList[query])
+    '步骤2:从底层开始往上找最低公共祖先'
+    csmTNodes=[] #存储的是包含查询节点的corenness最大的树节点集合
+    curLevel=[]
+
 
 
 
@@ -158,10 +174,10 @@ def displayTree(root,level):
 
 if __name__=="__main__":
 
-    graphFile='Data/toy2-graph'
-    nodeFile='Data/toy2-node'
+    graphFile='Data/toy-graph'
+    nodeFile='Data/toy-node'
     G=dataReader(graphFile,nodeFile)
-    root,invert=build(G)
+    root,vertexTNodeList,coreDict=build(G)
     #打印树
     displayTree(root,0)
 

@@ -347,12 +347,12 @@ def analyzeGroundTruthData():
 def selectFromGroudTruthDataFrom2Nei():
     '从groud-truth data里面筛选查询节点，和查询属性'
     path='L:/ACQData/groundTruthData/'
-    data='citeseer'
+    data='washington'
     dataName=data+'/'+data
     edgePath=path+dataName+'_graph'
     classFile=open(path+dataName+'_class','r')
     labelFile=open(path+dataName+'_nodelabel','r')
-    queryTimes = 1000
+    queryTimes = 100
     queryFile=open(path+dataName+'_query_2Nei_w3_'+str(queryTimes),'w')
 
     wordNum=3 ###指定的筛选属性的个数

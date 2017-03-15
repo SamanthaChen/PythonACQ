@@ -12,12 +12,12 @@ def runcsmGrD():
     ####      读query文件，并将结果输出（注意结果文件与query文件相对应）###########
     ###############################################################################
     path='L:/ACQData/'
-    dataset='citeseer'
+    dataset='washington'
     algo='greedyDecV2/'
     edgefile=path+'groundTruthData/'+dataset+'/'+dataset+'_graph'
     labelfile=path+'groundTruthData/'+dataset+'/'+dataset+'_nodelabel'
-    queryfile=path+'groundTruthData/'+dataset+'/'+dataset++'_query_2Nei_w3'
-    outfile=path+algo+dataset+'_query_2Nei_w3_csm_res.txt'
+    queryfile=path+'groundTruthData/'+dataset+'/'+dataset+'_query_2Nei_w3_100'
+    outfile=path+algo+dataset+'_query_2Nei_w3_100_csm_res.txt'
     queryVertexes=[] ##包含所有的查询节点
     queryAtts=[] ###包含所有的查询属性
     fq=open(queryfile,'r')
@@ -65,7 +65,11 @@ def runcsmGrD():
         qnode=queryVertexes[i]
         qattr=queryAtts[i]
         print 'retrieveCSM...'
-        resTNodes,H,maxCoreness =retrieveCSMV2(qnode,shellIndex)
+        resnodes,H,maxCoreness =retrieveCSMV2(qnode,shellIndex)
+        if resnodes == None:  ##这个查询条件不能满足了，找别的查询条件
+            print "This require k is too big."
+            wf.write('No answer.\n')
+            continue
         print 'csm:',H.nodes()
         print 'maxCoreness:',maxCoreness
         Hi=greedyDecV2(H,maxCoreness,qnode,qattr)
@@ -86,11 +90,11 @@ def runcstGrd():
     path = 'L:/ACQData/'
     dataset = 'citeseer'
     algo = 'greedyDecV2/'
-    k = 4
+    k = 5
     edgefile = path + 'groundTruthData/' + dataset + '/' + dataset + '_graph'
     labelfile = path + 'groundTruthData/' + dataset + '/' + dataset + '_nodelabel'
-    queryfile = path + 'groundTruthData/' + dataset + '/' + dataset  +'_query_2Nei_w3_1000'
-    outfile = path + algo + dataset + '_query_2Nei_w3_1000_k' + str(k) + '_res.txt'
+    queryfile = path + 'groundTruthData/' + dataset + '/' + dataset  +'_query_2Nei_w3_100'
+    outfile = path + algo + dataset + '_query_2Nei_w3_100_k' + str(k) + '_res.txt'
     queryVertexes = []  ##包含所有的查询节点
     queryAtts = []  ###包含所有的查询属性
 
@@ -159,4 +163,5 @@ def runcstGrd():
 
 
 if __name__=='__main__':
-    runcstGrd()
+    # runcstGrd()
+    runcsmGrD()

@@ -457,7 +457,7 @@ def csmSTTree(H,maxCoreness,queryVertexs,queryAttrs,alpha):
         graphAttEntropy2.append(sum([(val / float(N))*entropy(val / float(N)) for val in heuristic.VwList.values()]))
         ###更新最小度（后面记得删掉，太耗时间）
         graphMinDegree.append(min(subgraph.degree().items(),key=lambda x:x[1])[1]) ##取最小度
-        if graphMinDegree[-1]==maxCoreness:
+        if graphMinDegree[-1]==maxCoreness:  ###到达最大度可以跳出
             break
         ####将当前节点的未访问邻居加入到queue
         for nei in H.neighbors(curNode):
@@ -899,4 +899,4 @@ def runcsmGrD2():
     wf.close()
 
 if __name__=="__main__":
-    runcsmGrD2()
+    runcsmGrD()
