@@ -1,7 +1,7 @@
 # -*- coding:utf-8 -*-
 """
 @author:SamanthaChen
-@file:DealWithFaceBook.py
+@file:FaceBookDealer.py
 @time:2017/3/1320:16
 @Function:处理跟facebook有关的数据
 """

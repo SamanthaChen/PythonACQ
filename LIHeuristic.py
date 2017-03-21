@@ -10,12 +10,13 @@ from collections import defaultdict
 class LIHeuristic:
     '计算连接分数的类'
     def __init__(self,G,curGraph,queryAttrs,alpha):
+        '初始化的时候就已经计算好了当前候选节点得分。G是即候选范围，curGraph是最小连通的图（已经加入结果集中）'
         self.G=G
         self.queryAttrs=queryAttrs
         self.alpha=alpha
         ###当前最大链接分数
-        self.maxaScore=0
-        self.maxcScore=0
+        self.maxaScore=0 ##最大属性分数
+        self.maxcScore=0 ##最大结构分数
         #####当前节点的连接数分组
         self.connectedScore={} ###这个分数没有归一化
         self.attributeScore={} ###这个分数没有归一化
@@ -24,8 +25,8 @@ class LIHeuristic:
         self.queryAttrGroup=defaultdict(list) ##候选集中属性分组
         ####按连接分数分的小组
         # self.groupOfNodes=[None]*(nx.number_of_nodes(G))
-        ####节点到组号的映射
-        self.nodeGroup=defaultdict(list)
+        ####映射个数
+        self.nodeGroup=defaultdict(list) ###这个类已经多余了，跟connectedScore一样
         '1:计算当前每个节点的连接数和组号'
         resVertexs=curGraph.nodes()
         for u in resVertexs:
@@ -43,7 +44,7 @@ class LIHeuristic:
                 self.maxcScore=index
 
         '3:计算VkList'
-        self.VwList=self.VwList.fromkeys(queryAttrs,0)
+        self.VwList=self.VwList.fromkeys(queryAttrs,0)  #初始化是0分
         for qa in queryAttrs:
             for node in resVertexs:
                 if G.node[node].has_key('attr') and G.node[node]['attr']!=None:
@@ -51,7 +52,7 @@ class LIHeuristic:
                         if na==qa:
                             self.VwList[qa]+=1
         '4:计算当前候选节点的属性得分'
-        curNodes=self.nodeGroup.keys()
+        curNodes=self.nodeGroup.keys() ###当前候选节点
         self.connectedScore=self.connectedScore.fromkeys(curNodes,0.0)
         self.attributeScore=self.attributeScore.fromkeys(curNodes,0.0)
         self.totalScore=self.totalScore.fromkeys(curNodes,0.0)
@@ -71,7 +72,9 @@ class LIHeuristic:
                 self.maxaScore=self.attributeScore[n]
         '5:最后利用最大分数，归一化计算总分数'
         for n in curNodes:
-            tmp=alpha * (float(self.connectedScore[n])/float(self.maxcScore))+(1-alpha) * (float(self.attributeScore[n])/float(self.maxaScore))
+            tmp=0
+            if self.maxaScore!=0 and self.maxcScore!=0:
+                tmp=alpha * (float(self.connectedScore[n])/float(self.maxcScore))+(1-alpha) * (float(self.attributeScore[n])/float(self.maxaScore))
             self.totalScore[n]=tmp
 
 
@@ -82,7 +85,7 @@ class LIHeuristic:
         numberofNei=0
         nodes=solutionNodes
         ####遍历小的比较省时间
-        if(len(nodes)<len(neighbors)):
+        if(len(nodes)<len(neighbors)): ####’计算在结果集中的邻居个数‘
             for n in nodes:
                 if n in neighbors:
                     numberofNei+=1
@@ -109,16 +112,18 @@ class LIHeuristic:
 
         '3.更新总分（因为每一次最大分数都会变）(删除时候不更新，反正保持最大就行)'
         for n in self.nodeGroup.keys():
-            tmp=self.alpha * (float(self.connectedScore[n])/float(self.maxcScore))+(1-self.alpha) * (float(self.attributeScore[n])/float(self.maxaScore))
+            tmp=0
+            if self.maxcScore!=0 and self.maxaScore!=0:
+                tmp=self.alpha * (float(self.connectedScore[n])/float(self.maxcScore))+(1-self.alpha) * (float(self.attributeScore[n])/float(self.maxaScore))
             self.totalScore[n]=tmp
 
     def getBestNode(self):
         '获得当前分数最大的节点'
 
         if len(self.totalScore)==0:
-            return -1
+            return -1 ###已经没有候选节点了，返回-1
         else:
-            maxItem=max(self.totalScore.items(),key=lambda x:x[1])
+            maxItem=max(self.totalScore.items(),key=lambda x:x[1]) ##最大的选项
             node=maxItem[0]
             score=maxItem[1]
             '1.从待访问集合中删除'
@@ -127,7 +132,7 @@ class LIHeuristic:
             del self.connectedScore[node]
             del self.attributeScore[node]
             del self.totalScore[node]
-            ####从候选属性集分组中删除
+            '从候选属性集分组中删除'
             for qa in self.queryAttrs:
                 if self.G.node[node].has_key('attr') and self.G.node[node]['attr'] != None:
                     if qa in self.G.node[node]['attr']:
@@ -158,7 +163,10 @@ class LIHeuristic:
                                     self.maxaScore = self.attributeScore[nn]
             '5.更新总分（因为每一次最大分数都会变）(删除时候不更新，反正保持最大就行)'
             for n in self.nodeGroup.keys():
-                tmp=self.alpha * (float(self.connectedScore[n])/float(self.maxcScore))+(1-self.alpha) * (float(self.attributeScore[n])/float(self.maxaScore))
+                tmp = 0
+                if self.maxcScore != 0 and self.maxaScore != 0:
+                    tmp = self.alpha * (float(self.connectedScore[n]) / float(self.maxcScore)) + (1 - self.alpha) * (
+                    float(self.attributeScore[n]) / float(self.maxaScore))
                 self.totalScore[n]=tmp
             return node
 
