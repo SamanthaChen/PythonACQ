@@ -4,9 +4,13 @@
 @file:OnlineProcessingV2.py
 @time:2017/3/1020:42
 @Function：在先查询方法的类（新修订版）
+2017.3.16:修正CSMV2和CSTV2里面查找最低公共祖先哪里的一个致命错误
+2017.3.30：
+小修改，提高效率
+改CSM，CST
 """
 import sys
-sys.setrecursionlimit(1000000) #例如这里设置为一百万
+sys.setrecursionlimit(1000000) #这里设置地柜深度为一百万
 import networkx as nx
 import copy
 from math import log
@@ -36,32 +40,37 @@ def retrieveCSMV2(queryVertexes,index):
         if(index.coreDict[qv]==k):
             candiatelca.add(vertexTNodeList[qv]) ###存查询节点属于的树节点
             querys.remove(qv)
-    '3:从k-1层开始慢慢往上找'
-    while (len(querys)!=0   or  len(candiatelca)!=1) and k>=0:
-        ctmp=set()
-        for tnode in candiatelca:##将k层候选节点的父母加进来(core大于等于k-1的树节点)
+    '3:从k-1层开始慢慢往上找(re:2017.3.16,修改了这一部分)'
+    while k>=1:
+        '2017.3.30：改为先判断'
+        if (len(querys) == 0 and len(candiatelca) == 1):
+            break
+        ctmp = set()
+        for tnode in candiatelca:  ##将k层候选节点的父母加进来(core大于等于k-1的树节点)
             ctmp.add(tnode.parent)
         for qv in queryVertexes:
-            if coreDict[qv]==k-1: ##将k-1层的包含查询节点的树节点加进来
+            if coreDict[qv] == k - 1:  ##将k-1层的包含查询节点的树节点加进来
                 ctmp.add(vertexTNodeList[qv])
                 querys.remove(qv)
-        candiatelca=copy.deepcopy(ctmp)
-        k=k-1
+        candiatelca = ctmp ###这里应该不能用深拷贝？？？（re:2017.3.16）
+        k = k - 1
+
+
     ###最低公共祖先应该是最后一个core等于k的
-    lcaroot=candiatelca.pop()
+    lcaroot=list(candiatelca)[-1] ###(re:2017.3.15)
     for tnode in candiatelca:
         if tnode.core==k:
             lcaroot=tnode
     '5:找到最低lca后，BFS遍历树，返回所包含的所有图节点'
     queue=deque()
     queue.append(lcaroot)
-    resvertexes=[]
+    resvertexes=[] ##用列表是因为这里节点不会重复出现在多个shell
     while queue:
         tnode=queue.pop()
         resvertexes.extend(tnode.nodeList)
         if tnode.childList:
             queue.extend(tnode.childList)
-    print resvertexes
+    # print resvertexes
     '6:返回包含的子图'
     H=index.G.subgraph(resvertexes)
     return resvertexes,H,k
@@ -88,7 +97,9 @@ def retrieveCSTV2(queryVertexes,index,requireK):
             candiatelca.add(vertexTNodeList[qv])  ###存查询节点属于的树节点
             querys.remove(qv)
     '3:从k-1层开始慢慢往上找'
-    while (len(querys) != 0 or len(candiatelca) != 1) and k>=0:
+    while k>=1:
+        if (len(querys) == 0 and len(candiatelca) == 1):
+            break
         ctmp = set()
         for tnode in candiatelca:  ##将k层候选节点的父母加进来(core大于等于k-1的树节点)
             ctmp.add(tnode.parent)
@@ -96,10 +107,11 @@ def retrieveCSTV2(queryVertexes,index,requireK):
             if coreDict[qv] == k - 1:  ##将k-1层的包含查询节点的树节点加进来
                 ctmp.add(vertexTNodeList[qv])
                 querys.remove(qv)
-        candiatelca = copy.deepcopy(ctmp)
+        candiatelca = ctmp ###这里应该不能用深拷贝？？？（re:2017.3.16）
         k = k - 1
+
     ###最低公共祖先应该是最后一个core等于k的
-    lcaroot = candiatelca.pop()
+    lcaroot = list(candiatelca)[-1]
     for tnode in candiatelca:
         if tnode.core == k:
             lcaroot = tnode
@@ -123,7 +135,7 @@ def retrieveCSTV2(queryVertexes,index,requireK):
         resvertexes.extend(tnode.nodeList)
         if tnode.childList:
             queue.extend(tnode.childList)
-    print resvertexes
+    # print resvertexes
     '6:返回包含的子图'
     H = index.G.subgraph(resvertexes)
     return resvertexes, H, k
@@ -136,7 +148,7 @@ def greedyDecV2(H,requireK,queryVertexes,queryAttributes):
     graphAttrScores={} ##存删除每个节点后对应的子图得分(re:2017.3.12：改成字典)
     '2: 计算每个查询属性覆盖的节点个数'
     VwList=computeVwList(queryAttributes,Hi)
-    print 'VwList:', VwList, '\tlen(Hi):', str(len(Hi))
+    # print 'VwList:', VwList, '\tlen(Hi):', str(len(Hi))
     '3: 计算初始的图的属性得分'
     score0=sum([float(val*val)/float(len(Hi)) for val in VwList.values()]) ###sum(Vw*Vw/|V(H)|)
     graphAttrScores[0]=score0
@@ -157,24 +169,33 @@ def greedyDecV2(H,requireK,queryVertexes,queryAttributes):
         deletedVtmp.append(u)
         '这里可能会出现为了保持k-core需要删除查询点的情况，那就直接终止？'
         kcoreMaintain(Hi, requireK, deletedVtmp, queryVertexes)
-        interSecttmp = [val for val in deletedVtmp if val in queryVertexes]  ##看需要删除的节点和查询节点是否由交集
-        if len(interSecttmp) > 0:
-            break
-        ##可能删完就变成空的了;或者##删除完了不连通或者删除到查询节点就删除
+        tmpBreak=False
+        for n in queryVertexes:
+            if n in deletedVtmp: ##假设要删除的节点有查询节点，就直接退出
+                tmpBreak=True
+                break  ##跳出的是for循环
+        if tmpBreak:
+            print 'Ended in k-core maintance.'
+            break ##跳出的是while循环
+        '可能删完就变成空的了;或者##删除完了不连通或者删除到查询节点就删除'
         if not Hi or not isConnectedinG(queryVertexes,Hi):  ##
+            print 'Ended in not connected.'
             break
         deletedCount +=  len(deletedVtmp) - 1
+        ' 更新删除的节点'
         for v in deletedVtmp:
             deletedVertexes.append(v)  # 更新删除的节点
         '5.3:更新相关的属性得分'
         for v in deletedVtmp:
             ###统计受影响的属性
-            nattr = H.node[v]['attr']
-            if nattr!=None:
-                tmp = [val for val in nattr if val in queryAttributes]
-                for w in tmp:
-                    VwList[w] = VwList[w] - 1
-        print 'VwList:', VwList,'\tlen(Hi):',str(len(Hi))
+            if H.node[v].has_key('attr'):
+                nattr = H.node[v]['attr']
+                if nattr!=None:
+                    for a in queryAttributes: ##遍历小的节省时间
+                        if a in nattr:
+                            VwList[a] = VwList[a] - 1
+
+        # print 'VwList:', VwList,'\tlen(Hi):',str(len(Hi))
         ###更新图属性得分
         scoretmp = sum([float(val * val) / float(len(Hi)) for val in VwList.itervalues()])
         graphAttrScores[deletedCount] = scoretmp
@@ -213,6 +234,48 @@ def kcoreMaintain(H,maxCoreness,deletedVs,queryVs):
     ##删除完不满足条件的节点后就可以返回了
     return
 
+def kcoreMaintainFast(H,maxCoreness,deletedVs,queryVs):
+    '2017.3.30:利用k-core分解'
+    'line 245:list.remove(x): x not in list 不想改了'
+    flag=True
+    degreeDict=nx.degree(H)
+    '按照度进行分组'
+    degreeGroup=defaultdict(list)
+    for v,k in degreeDict.items():
+        degreeGroup[k].append(v)
+    # maxk=max(degreeGroup.keys()) #最大的度
+    mink=min(degreeGroup.keys()) #最小的度
+    '一直删除节点直到不满足的点都删掉'
+    deletedNodes=[]
+    while mink<maxCoreness and len(degreeGroup)>0:
+        group=copy.deepcopy(degreeGroup[mink])
+        for v in group:
+            if v not in deletedNodes:
+                deletedNodes.append(v)
+                degreeGroup[mink].remove(v)
+            '要删除的点里面有查询节点'
+            if v in queryVs:
+                return False
+            '删除的点的邻居度都减1'
+
+            for w in nx.neighbors(H,v):
+                if w not in deletedNodes:
+                    oldk=degreeDict[w]
+                    degreeDict[w]=oldk-1
+                    degreeGroup[oldk].remove(w)
+                    degreeGroup[oldk-1].append(w)
+        '把空value的字典删掉'
+        mink = min(degreeGroup.keys())  # 最小的度
+        while len(degreeGroup[mink])==0:
+            del degreeGroup[mink]
+            mink = min(degreeGroup.keys())
+
+    if deletedNodes:
+        H.remove_nodes_from(deletedNodes)
+    deletedVs.extend(deletedNodes)
+    return flag
+
+
 
 def computeVwList(queryAttrs,H):
     '计算子图中查询属性覆盖的节点个数'
@@ -226,24 +289,37 @@ def computeVwList(queryAttrs,H):
     return VwList
 
 def computeVertexAttrScore(H,VwList,queryAttributes,queryVertexes,requireK):
+    '''
+     '计算除了查询节点外，每个节点在子图中的属性得分'
+     边缘属性得分=自己的属性得分+一度邻居中度==k-1的节点的属性得分。
+     （这里只考虑一度邻居，实际上这个删除节点的影响会往下传播）
+    :param H: 图
+    :param VwList:
+    :param queryAttributes:
+    :param queryVertexes:
+    :param requireK:
+    :return:
+    '''
     '计算除了查询节点外，每个节点在子图中的属性得分'
     vertexAttrScores={}
     for v in H.nodes():
         if v not in queryVertexes and H.node[v].has_key('attr'):
             vattrs=H.node[v]['attr']
             if vattrs is not None:
-                interSectAttr=[val for val in queryAttributes if val in vattrs]
-                score=sum([2.0*VwList[val]-1 for val in interSectAttr])
+                score=0.0
+                for val in queryAttributes: #一般来说QqueryAttr比较少，用作外循环（2017.3.30）
+                    if val in vattrs:
+                        score+=2.0*VwList[val]-1
                 vertexAttrScores[v]=score
             else:
                 vertexAttrScores[v]=0
     '计算每个节点以及其邻居节点的属性得分，做attribute marginal gain'
     vertexAttrMarginalGain = {}
-    degreesDict=nx.degree(H)
+    degreesDict=nx.degree(H) #度的字典
     for v in vertexAttrScores.keys():
         vertexAttrMarginalGain[v]=vertexAttrScores[v] ##先把自己的得分加上去
         for nei in nx.neighbors(H,v):
-            if degreesDict[nei]==requireK-1:#把邻居中可能会被删除的节点的分数加上
+            if degreesDict[nei]==requireK-1:#把邻居中可能会被删除的节点的分数加上（这里只考虑一度邻居，实际上这个删除节点的影响会往下传播）
                 vertexAttrMarginalGain[v]+=vertexAttrScores[nei]
     return vertexAttrMarginalGain
 
@@ -251,7 +327,7 @@ def computeVertexAttrScore(H,VwList,queryAttributes,queryVertexes,requireK):
 
 def isConnectedinG(nodes,H):
     '判断给定的节点集合在子图中是否是连通的'
-    '判断一个点到其他点否有路径即可'
+    '判断一个点到其他点否有路径即可,这个是不是很耗时？'
     flag=True
     if len(nodes)>1:###节点集合个数至少大于1才可以
         source=nodes[0]
@@ -262,66 +338,151 @@ def isConnectedinG(nodes,H):
     return flag
 
 
-def greedyInc(H,requireK,queryVertexs,queryAttrs,alpha):
-    '以CSM的结果（即输入的H）为候选集，先找一颗斯坦纳树保证连接，再局部扩张'
+def greedyIncFromH(G,H,requireK,queryVertexs,queryAttrs,alpha):
+    '以CSM/CST的结果（即输入的H）为候选集，先找一颗斯坦纳树保证连接，再局部扩张（扩张的节点从CSM/CST(re:改为原来的整张图)中选取）'
     '1.从候选图中找斯坦纳树'
     stG=buildSteinerTree(queryVertexs,H)
-    N=nx.number_of_nodes(stG) ##当前树的节点大小
+    # N=nx.number_of_nodes(stG) ##当前树的节点大小
+    '当前解'
     solution=stG.nodes() ##当前解
     '2.局部搜索，同时计算子图得分'
     ####下面这两个先测试一下，后面看情况调整
-    graphAttSocre=[]
-    graphAttEntropy=[] ##用熵做子图属性分数
-    graphAttEntropy2=[]
+    # graphAttSocre=[]
+    # graphAttEntropy=[] ##用熵做子图属性分数
+    # graphAttEntropy2=[]
     graphMinDegree=[]
-    graphMinDegree.append(min(stG.degree().items(),key=lambda x:x[1])[1]) ##取最小度
-    selectedNodes=[]
+    tmp=min(stG.degree().values())
+    graphMinDegree.append(tmp) ##取最小度
+    '当前最小度已经满足了，直接返回'
+    if tmp>=requireK:
+        print 'stG is qualified.'
+        return stG
+    # selectedNodes=[]   ###存每次选择的节点
 
-    ###初始化连接类
-    heuristic=LIHeuristic(H,stG,queryAttrs,alpha) ##初始化已经把srG的一度邻居的链接分数计算了
-    graphAttSocre.append(sum([val*val/float(N) for val in heuristic.VwList.values()]))
-    graphAttEntropy.append(sum([ entropy( val/float(N) ) for val in heuristic.VwList.values()]))
-    graphAttEntropy2.append(sum([  (val/float(N))*entropy(val / float(N)) for val in heuristic.VwList.values()]))
+    ###初始化连接类，初始化的同时已经在计算候选节点的分数了
+    heuristic=LIHeuristic(H,stG,queryAttrs,alpha) ##初始化已经把srG的一度邻居的链接分数计算了 (节点的候选范围是G)（2017.3.30：候选范围改成H）
+    # graphAttSocre.append(sum([val*val/float(N) for val in heuristic.VwList.values()]))
+    # graphAttEntropy.append(sum([ entropy( val/float(N) ) for val in heuristic.VwList.values()]))
+    # graphAttEntropy2.append(sum([  (val/float(N))*entropy(val / float(N)) for val in heuristic.VwList.values()]))
     # print 'connected：', heuristic.connectedScore
     # print 'attribute:', heuristic.attributeScore
     # print 'total:', heuristic.totalScore
     curNode=heuristic.getBestNode()##取出得分最高的
-    selectedNodes.append(curNode)
+    # selectedNodes.append(curNode)
     # print 'curNode:',str(curNode)
-
-
+    subgraph=nx.Graph()
     while curNode!=-1: ####扩张到没有候选节点或者到达最大coreness停止
-        ###加入结果集合
+        '加入结果集合'
         solution.append(curNode) ##最终结果集合包含的节点
-        ###更新子图属性得分
-        subgraph=H.subgraph(solution)
-        N=nx.number_of_nodes(subgraph)
-        graphAttSocre.append(sum([val*val / float(N) for val in heuristic.VwList.values()]))
-        graphAttEntropy.append(sum([entropy(val / float(N)) for val in heuristic.VwList.values()]))
-        graphAttEntropy2.append(sum([(val / float(N))*entropy(val / float(N)) for val in heuristic.VwList.values()]))
-        ###更新最小度（后面记得删掉，太耗时间）
-        graphMinDegree.append(min(subgraph.degree().items(),key=lambda x:x[1])[1]) ##取最小度
-        if graphMinDegree[-1]==requireK:  ###到达最大度可以跳出
+        '更新子图'
+        subgraph=G.subgraph(solution)
+        # N=nx.number_of_nodes(subgraph)
+        # graphAttSocre.append(sum([val*val / float(N) for val in heuristic.VwList.values()]))
+        # graphAttEntropy.append(sum([entropy(val / float(N)) for val in heuristic.VwList.values()]))
+        # graphAttEntropy2.append(sum([(val / float(N))*entropy(val / float(N)) for val in heuristic.VwList.values()]))
+        '更新最小度'
+        curMinDegree=min(subgraph.degree().values())
+        graphMinDegree.append(curMinDegree)##取最小度
+        if curMinDegree>=requireK:  ###到达最大度可以跳出
+            print 'Ended in  mink>=k.'
             break
-        ####将当前节点的未访问邻居加入到queue
-        for nei in H.neighbors(curNode):
-            if (nei not in solution) and (nei not in heuristic.nodeGroup.keys()):
-                if H.degree(nei)>requireK:
-                    heuristic.addNode(nei,solution)
+        '将当前节点的未访问邻居加入到queue(这里应该修改一下)'
+        tmpaddNodes=[]
+        for nei in H.neighbors(curNode): ####(re:2017.3.15 候选范围扩大到G)（2017.3.30：候选范围改成H）
+            if (nei not in solution) and (nei not in heuristic.connectedScore.keys()):
+                if H.degree(nei)>=requireK: #度大于指定k的才可以(2017.3.30)（2017.3.30：候选范围改成H）
+                    tmpaddNodes.append(nei)
+        '批量加候选节点'
+        if len(tmpaddNodes)>0:
+            heuristic.addNodeList(tmpaddNodes,solution)
 
         # print 'connected：', heuristic.connectedScore
         # print 'attribute:', heuristic.attributeScore
         # print 'total:', heuristic.totalScore
+        '继续获取最优节点'
         curNode=heuristic.getBestNode()
-        selectedNodes.append(curNode)
+        # selectedNodes.append(curNode)
+        # print 'curNode:',str(curNode)
+    if curNode==-1:
+        print 'Ended in no candiate.'
+    print 'graphMinDegree:',graphMinDegree
+    # print 'graphAttSocre:',graphAttSocre
+    # print 'graphAttEntropy:',graphAttEntropy
+    # print 'graphAttEntropy2:', graphAttEntropy2
+    # print 'selectedNodes:',selectedNodes
+    # subgraph=G.subgraph(solution)
+    return subgraph
+
+def greedyIncFromG(G,H,requireK,queryVertexs,queryAttrs,alpha):
+    '以CSM/CST的结果（即输入的H）为候选集，先找一颗斯坦纳树保证连接，再局部扩张（扩张的节点从CSM/CST(re:改为原来的整张图)中选取）'
+    '1.从候选图中找斯坦纳树'
+    stG=buildSteinerTree(queryVertexs,H)
+    # N=nx.number_of_nodes(stG) ##当前树的节点大小
+    '当前解'
+    solution=stG.nodes() ##当前解
+    '2.局部搜索，同时计算子图得分'
+    ####下面这两个先测试一下，后面看情况调整
+    # graphAttSocre=[]
+    # graphAttEntropy=[] ##用熵做子图属性分数
+    # graphAttEntropy2=[]
+    graphMinDegree=[]
+    graphMinDegree.append(min(stG.degree().values())) ##取最小度
+    # selectedNodes=[]   ###存每次选择的节点
+
+    ###初始化连接类，初始化的同时已经在计算候选节点的分数了
+    heuristic=LIHeuristic(G,stG,queryAttrs,alpha) ##初始化已经把srG的一度邻居的链接分数计算了 (节点的候选范围是G)（2017.3.30：候选范围改成H）
+    # graphAttSocre.append(sum([val*val/float(N) for val in heuristic.VwList.values()]))
+    # graphAttEntropy.append(sum([ entropy( val/float(N) ) for val in heuristic.VwList.values()]))
+    # graphAttEntropy2.append(sum([  (val/float(N))*entropy(val / float(N)) for val in heuristic.VwList.values()]))
+    # print 'connected：', heuristic.connectedScore
+    # print 'attribute:', heuristic.attributeScore
+    # print 'total:', heuristic.totalScore
+    curNode=heuristic.getBestNode()##取出得分最高的
+    # selectedNodes.append(curNode)
+    # print 'curNode:',str(curNode)
+    subgraph=nx.Graph()
+    while curNode!=-1: ####扩张到没有候选节点或者到达最大coreness停止
+        '加入结果集合'
+        solution.append(curNode) ##最终结果集合包含的节点
+        '更新子图'
+        subgraph=G.subgraph(solution)
+        # N=nx.number_of_nodes(subgraph)
+        # graphAttSocre.append(sum([val*val / float(N) for val in heuristic.VwList.values()]))
+        # graphAttEntropy.append(sum([entropy(val / float(N)) for val in heuristic.VwList.values()]))
+        # graphAttEntropy2.append(sum([(val / float(N))*entropy(val / float(N)) for val in heuristic.VwList.values()]))
+        '更新最小度'
+        curMinDegree=min(subgraph.degree().values())
+        graphMinDegree.append(curMinDegree)##取最小度
+        if curMinDegree>=requireK:  ###到达最大度可以跳出
+            print 'Ended in  mink>=k.'
+            break
+        '将当前节点的未访问邻居加入到queue(这里应该修改一下)'
+        tmpaddNodes=[]
+        for nei in G.neighbors(curNode): ####(re:2017.3.15 候选范围扩大到G)（2017.3.30：候选范围改成H）
+            if (nei not in solution) and (nei not in heuristic.connectedScore.keys()):
+                if G.degree(nei)>=requireK: #度大于指定k的才可以(2017.3.30)（2017.3.30：候选范围改成H）
+                    tmpaddNodes.append(nei)
+        '批量加候选节点'
+        if len(tmpaddNodes)>0:
+            heuristic.addNodeList(tmpaddNodes,solution)
+
+        # print 'connected：', heuristic.connectedScore
+        # print 'attribute:', heuristic.attributeScore
+        # print 'total:', heuristic.totalScore
+        '继续获取最优节点'
+        curNode=heuristic.getBestNode()
+        # selectedNodes.append(curNode)
         # print 'curNode:',str(curNode)
 
+    if curNode==-1:
+        print 'Ended in no candiate.'
+
     print 'graphMinDegree:',graphMinDegree
-    print 'graphAttSocre:',graphAttSocre
-    print 'graphAttEntropy:',graphAttEntropy
-    print 'graphAttEntropy2:', graphAttEntropy2
-    print 'selectedNodes:',selectedNodes
-    subgraph=H.subgraph(H)
+    # print 'graphAttSocre:',graphAttSocre
+    # print 'graphAttEntropy:',graphAttEntropy
+    # print 'graphAttEntropy2:', graphAttEntropy2
+    # print 'selectedNodes:',selectedNodes
+    # subgraph=G.subgraph(solution)
     return subgraph
 
 def entropy(p):
@@ -403,7 +564,7 @@ def toyTest():
     dataset = 'toy'
     edgefile = path + dataset + '-graph'
     labelfile = path + dataset + '-node'
-    queryVertexes = [1, 2, 3]  ##包含所有的查询节点
+    queryVertexes = [1, 5]  ##包含所有的查询节点
     queryAtts = ['x', 'y']  ###包含所有的查询属性
 
     print 'Reading graph...'
@@ -414,16 +575,20 @@ def toyTest():
     shellIndex.build()
     root = shellIndex.root
     # #打印树
-    # print 'Index Tree:'
-    # shellIndex.displayTree(root,0)
+    print 'Index Tree:'
+    shellIndex.displayTree(root,0)
     print  'querying...'
     qnodes = queryVertexes
     qattrs = queryAtts
 
-    'CST'
-    requireK = 3
-    print 'retrieveCST(k=', str(requireK), ')...'
-    resnodes, H, maxCoreness = retrieveCSTV2(qnodes, shellIndex,requireK)
+    # 'CST'
+    # requireK = 1
+    # print 'retrieveCST(k=', str(requireK), ')...'
+    # resnodes, H, maxCoreness = retrieveCSTV2(qnodes, shellIndex, requireK)
+
+    'CSM'
+    resnodes,H,maxCoreness=retrieveCSMV2(queryVertexes,shellIndex)
+
     if resnodes==None:
         print "This require k is too big."
         return
@@ -431,13 +596,15 @@ def toyTest():
     print 'csTEdges:', H.edges()
     print 'maxCoreness:', maxCoreness
 
-    Hi = greedyDecV2(H, requireK, qnodes, qattrs)
+    Hi = greedyIncFromH(G,H, maxCoreness, qnodes, qattrs,0.0)
     print 'res:', Hi.nodes()
 
 
 
 if __name__=='__main__':
     toyTest()
+
+
 
 
 

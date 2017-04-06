@@ -46,13 +46,18 @@ class ShellStructIndex:
         # sortedVk=sorted(Vk.items(),key=lambda d:d[0],reverse=True)
         '步骤2：初始化并查集和一些需要的数据结构'
         restNodeList=[] #储存没有父母的节点，最后直接连接到core为0的根节点下方作为孩子
-        ShellStructIndex.vertexTNodelist=[None]*(N+2) #图节点到TNode的映射的列表
+        '为了处理节点不连续的问题，找iD最大的节点,将maxID替换所有的N'
+        maxID=0
+        for nodeID in ShellStructIndex.G.nodes():
+            if nodeID>maxID:
+                maxID=nodeID
+        ShellStructIndex.vertexTNodelist=[None]*(maxID+1) #图节点到TNode的映射的列表
         # print str(N+1)
         core0List=[] #coreness=0的节点，作为这棵树的根
         #############初始化并查集#############
         unodeArr =[] #存储的是并查集的节点(id->UNode)
         uf = UnionFind() #包含所有并查集方法的类
-        for i in range(N+2):#加1是因为可能从1才开始编号
+        for i in range(maxID+1):#加1是因为可能从1才开始编号
             unode=UNode(i)
             uf.makeSet(unode)
             unodeArr.append(unode)
